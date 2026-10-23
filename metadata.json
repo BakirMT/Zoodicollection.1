@@ -1,0 +1,6 @@
+{
+  "name": "ZOODI Collection — Cross-Platform Shopping App & Admin Management",
+  "description": "Complete production-grade cross-platform mobile shopping application with dual customer experience and private admin management panel, dynamic homepage builder, color variants, 3-level categories, and live order tracking.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
