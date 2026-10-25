@@ -339,3 +339,73 @@ export interface AuditLog {
   details: string;
   timestamp: string;
 }
+
+export type NotificationType =
+  | 'order_placed'
+  | 'order_status'
+  | 'payment_success'
+  | 'payment_failed'
+  | 'refund'
+  | 'low_stock'
+  | 'out_of_stock'
+  | 'back_in_stock'
+  | 'promotional'
+  | 'support_ticket'
+  | 'account_security'
+  | 'catalogue_update';
+
+export type NotificationRecipientRole = 'customer' | 'admin' | 'all';
+
+export interface AppNotification {
+  id: string;
+  recipientUserId?: string;
+  recipientRole: NotificationRecipientRole;
+  type: NotificationType;
+  title: string;
+  message: string;
+  orderId?: string;
+  relatedId?: string;
+  deepLink?: string;
+  isRead: boolean;
+  createdAt: string;
+  deliveryStatus: 'delivered' | 'sent' | 'pending';
+  campaignId?: string;
+  senderAdminName?: string;
+}
+
+export interface AdminNotificationSettings {
+  enableOrderAlerts: boolean;
+  enablePaymentAlerts: boolean;
+  enableStockAlerts: boolean;
+  enableCustomerAlerts?: boolean;
+  enableCustomerRegistrationAlerts: boolean;
+  enableCatalogueAlerts: boolean;
+  enablePromotionalBroadcasts: boolean;
+  soundEnabled: boolean;
+  browserPushEnabled: boolean;
+}
+
+export interface CustomerNotificationPreferences {
+  orderUpdates: boolean;
+  promotionsAndOffers: boolean;
+  backInStockAlerts: boolean;
+  accountSecurity: boolean;
+  browserPushEnabled: boolean;
+}
+
+export interface NotificationBroadcastCampaign {
+  id: string;
+  title: string;
+  message: string;
+  audience: 'all' | 'buyers' | 'wishlist';
+  deepLink?: string;
+  bannerImage?: string;
+  scheduledAt?: string;
+  sentAt: string;
+  sentByAdminName: string;
+  targetCount: number;
+  deliveredCount: number;
+  openCount: number;
+  status: 'sent' | 'scheduled' | 'draft';
+}
+

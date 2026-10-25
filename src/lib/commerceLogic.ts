@@ -175,22 +175,24 @@ export type AdminModule =
   | 'support'
   | 'settings'
   | 'admin_users'
-  | 'audit_logs';
+  | 'audit_logs'
+  | 'notifications'
+  | 'flutter_export';
 
 export function hasAdminPermission(role: AdminRole, module: AdminModule): boolean {
   if (role === 'super_admin') return true;
 
   switch (role) {
     case 'product_manager':
-      return ['dashboard', 'products', 'categories', 'inventory', 'reviews'].includes(module);
+      return ['dashboard', 'products', 'categories', 'inventory', 'reviews', 'notifications', 'flutter_export'].includes(module);
     case 'order_manager':
-      return ['dashboard', 'orders', 'inventory', 'customers', 'support'].includes(module);
+      return ['dashboard', 'orders', 'inventory', 'customers', 'support', 'notifications', 'flutter_export'].includes(module);
     case 'inventory_manager':
-      return ['dashboard', 'inventory', 'products', 'orders'].includes(module);
+      return ['dashboard', 'inventory', 'products', 'orders', 'notifications', 'flutter_export'].includes(module);
     case 'customer_support':
-      return ['dashboard', 'orders', 'customers', 'reviews', 'support'].includes(module);
+      return ['dashboard', 'orders', 'customers', 'reviews', 'support', 'notifications', 'flutter_export'].includes(module);
     case 'marketing_manager':
-      return ['dashboard', 'homepage_builder', 'coupons_marketing', 'products', 'reviews'].includes(module);
+      return ['dashboard', 'homepage_builder', 'coupons_marketing', 'products', 'reviews', 'notifications', 'flutter_export'].includes(module);
     default:
       return false;
   }

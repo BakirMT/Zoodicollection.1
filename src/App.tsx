@@ -13,6 +13,8 @@ import { AccountScreen } from './views/customer/AccountScreen';
 import { SearchModal } from './views/customer/SearchModal';
 import { CustomerLoginScreen } from './views/customer/CustomerLoginScreen';
 import { CouponsAndDealsModal } from './components/customer/CouponsAndDealsModal';
+import { NotificationCenterModal } from './components/NotificationCenterModal';
+import { CustomerNotificationPreferencesModal } from './components/CustomerNotificationPreferencesModal';
 import { AdminLoginScreen } from './views/admin/AdminLoginScreen';
 import { AdminDashboard } from './views/admin/AdminDashboard';
 import { WifiOff, RefreshCw } from 'lucide-react';
@@ -180,6 +182,10 @@ const AppShell: React.FC = () => {
 
         {/* Coupons & Deals Modal Overlay */}
         <CouponsAndDealsModal />
+
+        {/* Customer Push Notification Center & Preferences Modals */}
+        <NotificationCenterModal />
+        <CustomerNotificationPreferencesModal />
 
         {/* Screen Routing */}
         {activeScreen === 'login' && <CustomerLoginScreen />}

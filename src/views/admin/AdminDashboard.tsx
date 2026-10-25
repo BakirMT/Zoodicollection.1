@@ -33,6 +33,9 @@ import {
   X,
   Store,
   ExternalLink,
+  Bell,
+  Copy,
+  CreditCard,
 } from 'lucide-react';
 
 import { CategoryManagementView } from './CategoryManagementView';
@@ -40,6 +43,7 @@ import { CategoryModal, CategoryLevel } from '../../components/admin/CategoryMod
 import { AdminRbacView } from './AdminRbacView';
 import { AdminCustomersView } from './AdminCustomersView';
 import { DynamicHomepageBuilder } from './DynamicHomepageBuilder';
+import { AdminNotificationStudio } from './AdminNotificationStudio';
 
 export const AdminDashboard: React.FC = () => {
   const {
@@ -48,6 +52,7 @@ export const AdminDashboard: React.FC = () => {
     navigateTo,
     adminModule,
     setAdminModule,
+    unreadAdminCount,
     products,
     saveProduct,
     deleteProduct,
@@ -71,6 +76,12 @@ export const AdminDashboard: React.FC = () => {
     adminUsers,
     addAdminUser,
     auditLogs,
+    connectedGpayVpa,
+    setConnectedGpayVpa,
+    gpayMerchantName,
+    setGpayMerchantName,
+    gpayUserEmail,
+    gpayPhone,
   } = useApp();
 
   const role = currentAdmin?.role || 'super_admin';
@@ -394,6 +405,35 @@ export const AdminDashboard: React.FC = () => {
     setDeletingCoupon(null);
   };
 
+  // Payment Receiver state (Admin only)
+  const [adminGpayVpa, setAdminGpayVpa] = useState(connectedGpayVpa);
+  const [adminGpayName, setAdminGpayName] = useState(gpayMerchantName);
+  const [isEditingGpay, setIsEditingGpay] = useState(false);
+  const [gpayCopied, setGpayCopied] = useState(false);
+
+  useEffect(() => {
+    setAdminGpayVpa(connectedGpayVpa);
+    setAdminGpayName(gpayMerchantName);
+  }, [connectedGpayVpa, gpayMerchantName]);
+
+  const handleSavePaymentReceiver = (e: React.FormEvent) => {
+    e.preventDefault();
+    if (!adminGpayVpa.trim()) {
+      showNotice('Google Pay UPI VPA is required', 'error');
+      return;
+    }
+    setConnectedGpayVpa(adminGpayVpa.trim());
+    setGpayMerchantName(adminGpayName.trim() || 'Ayisha N.P.');
+    showNotice(`Store payment settlement account updated to ${adminGpayVpa.trim()} (${adminGpayName.trim()})`, 'success');
+    setIsEditingGpay(false);
+  };
+
+  const handleCopyAdminVpa = () => {
+    navigator.clipboard.writeText(connectedGpayVpa);
+    setGpayCopied(true);
+    setTimeout(() => setGpayCopied(false), 2000);
+  };
+
   // Calculate Executive Metrics
   const totalRevenue = orders
     .filter((o) => o.payment.status === 'paid')
@@ -415,6 +455,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'orders', label: 'Orders & Fulfillment', icon: <ShoppingBag className="w-4 h-4" /> },
     { id: 'inventory', label: 'Variant Inventory', icon: <Boxes className="w-4 h-4" /> },
     { id: 'coupons_marketing', label: 'Coupons & Deals', icon: <Tag className="w-4 h-4" /> },
+    { id: 'notifications', label: 'Push Notifications & Studio', icon: <Bell className="w-4 h-4" /> },
     { id: 'customers', label: 'Customers', icon: <Users className="w-4 h-4" /> },
     { id: 'reviews', label: 'Reviews Moderation', icon: <Star className="w-4 h-4" /> },
     { id: 'support', label: 'Support Tickets', icon: <LifeBuoy className="w-4 h-4" /> },
@@ -573,6 +614,22 @@ export const AdminDashboard: React.FC = () => {
           >
             <ShoppingBag className="w-3.5 h-3.5" />
             <span>Visit Shop</span>
+          </button>
+
+          {/* Admin Notifications Shortcut */}
+          <button
+            type="button"
+            onClick={() => setAdminModule('notifications')}
+            className="relative p-2 rounded-xl bg-slate-800 hover:bg-slate-700 text-slate-200 transition-colors cursor-pointer"
+            title={`Store Alerts (${unreadAdminCount} unread)`}
+            aria-label={`Notifications, ${unreadAdminCount} unread`}
+          >
+            <Bell className="w-4 h-4" />
+            {unreadAdminCount > 0 && (
+              <span className="absolute -top-1 -right-1 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F20D58] text-white text-[10px] font-black flex items-center justify-center shadow-xs">
+                {unreadAdminCount}
+              </span>
+            )}
           </button>
 
           <button
@@ -1443,6 +1500,158 @@ export const AdminDashboard: React.FC = () => {
                 </div>
               </div>
 
+              {/* STORE PAYMENT RECEIVER & SETTLEMENT ACCOUNT (GOOGLE PAY / UPI) - ADMIN ONLY */}
+              <div className="p-5 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs space-y-4 text-xs">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3 border-b border-[#F0F4F8] pb-3">
+                  <div className="flex items-center gap-3">
+                    <div className="w-10 h-10 rounded-xl bg-slate-900 border border-slate-700 flex items-center justify-center shrink-0">
+                      <svg className="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="#4285F4" d="M23.745 12.27c0-.7-.06-1.4-.19-2.07H12v4.51h6.6c-.29 1.52-1.14 2.82-2.4 3.68v3.05h3.88c2.27-2.09 3.665-5.17 3.665-9.17z" />
+                        <path fill="#34A853" d="M12 24c3.24 0 5.95-1.08 7.93-2.91l-3.88-3.05c-1.08.72-2.45 1.16-4.05 1.16-3.12 0-5.77-2.1-6.72-4.93H1.24v3.15C3.26 21.36 7.33 24 12 24z" />
+                        <path fill="#FBBC05" d="M5.28 14.27c-.25-.72-.38-1.49-.38-2.27s.13-1.55.38-2.27V6.58H1.24C.45 8.15 0 9.99 0 12s.45 3.85 1.24 5.42l4.04-3.15z" />
+                        <path fill="#EA4335" d="M12 4.75c1.77 0 3.35.61 4.6 1.8l3.42-3.42C17.95 1.19 15.24 0 12 0 7.33 0 3.26 2.64 1.24 6.58l4.04 3.15c.95-2.83 3.6-4.98 6.72-4.98z" />
+                      </svg>
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2">
+                        <h3 className="font-extrabold text-sm text-[#192E4D]">Payment Receiver & Settlement Account</h3>
+                        <span className="text-[9px] font-black uppercase px-2 py-0.5 rounded bg-amber-100 text-amber-800 border border-amber-200">
+                          Admin Controlled Only
+                        </span>
+                      </div>
+                      <p className="text-[11px] text-[#697586]">Google Pay UPI account receiving all store customer checkouts</p>
+                    </div>
+                  </div>
+
+                  {!isEditingGpay ? (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setAdminGpayVpa(connectedGpayVpa);
+                        setAdminGpayName(gpayMerchantName);
+                        setIsEditingGpay(true);
+                      }}
+                      className="h-9 px-4 rounded-xl bg-[#08A9A2] hover:bg-[#079690] active:scale-95 text-white font-extrabold text-xs flex items-center justify-center gap-1.5 shadow-xs transition-all cursor-pointer shrink-0"
+                    >
+                      <Edit3 className="w-3.5 h-3.5" />
+                      <span>Edit Settlement Account</span>
+                    </button>
+                  ) : (
+                    <button
+                      type="button"
+                      onClick={() => setIsEditingGpay(false)}
+                      className="h-9 px-4 rounded-xl bg-slate-100 hover:bg-slate-200 text-slate-700 font-extrabold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer shrink-0"
+                    >
+                      <X className="w-3.5 h-3.5" />
+                      <span>Cancel</span>
+                    </button>
+                  )}
+                </div>
+
+                {!isEditingGpay ? (
+                  <div className="space-y-3">
+                    {/* Visual Live Card */}
+                    <div className="p-4 rounded-xl bg-gradient-to-r from-[#192E4D] to-[#25426E] text-white shadow-xs space-y-2.5">
+                      <div className="flex items-center justify-between">
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] font-extrabold uppercase tracking-wider text-teal-300">
+                            Live Google Pay Receiver Account
+                          </span>
+                          <span className="w-2 h-2 rounded-full bg-emerald-400 animate-pulse" />
+                        </div>
+                        <span className="text-[10px] font-bold text-emerald-300 bg-emerald-950/60 border border-emerald-500/30 px-2 py-0.5 rounded">
+                          Settlement Active
+                        </span>
+                      </div>
+
+                      <div className="flex flex-col sm:flex-row sm:items-baseline justify-between gap-2">
+                        <div>
+                          <div className="text-base font-black text-white">{gpayMerchantName}</div>
+                          <div className="flex items-center gap-2 mt-1">
+                            <span className="text-xs text-slate-300">UPI ID (VPA):</span>
+                            <code className="font-mono font-bold text-teal-300 bg-white/10 px-2.5 py-0.5 rounded text-xs">
+                              {connectedGpayVpa}
+                            </code>
+                            <button
+                              type="button"
+                              onClick={handleCopyAdminVpa}
+                              className="text-slate-300 hover:text-white p-1 rounded hover:bg-white/10 transition-colors"
+                              title="Copy VPA"
+                            >
+                              {gpayCopied ? <Check className="w-3.5 h-3.5 text-emerald-400" /> : <Copy className="w-3.5 h-3.5" />}
+                            </button>
+                          </div>
+                        </div>
+                        <div className="text-left sm:text-right text-[11px] text-slate-300 space-y-0.5">
+                          <div>Phone: <span className="font-mono font-bold text-white">{gpayPhone}</span></div>
+                          <div>Email: <span className="font-mono text-slate-300">{gpayUserEmail}</span></div>
+                        </div>
+                      </div>
+                    </div>
+
+                    <div className="p-3 rounded-xl bg-blue-50/70 border border-blue-200 text-blue-900 text-[11px] flex items-start gap-2">
+                      <ShieldCheck className="w-4 h-4 text-blue-600 shrink-0 mt-0.5" />
+                      <p>
+                        <strong>Security & Privacy Guard:</strong> This settlement receiver configuration is strictly protected and editable only by administrators in this dashboard.
+                        Customers on the checkout page cannot view this card or modify payment details.
+                        Customer payments are securely routed directly to this verified UPI ID.
+                      </p>
+                    </div>
+                  </div>
+                ) : (
+                  <form onSubmit={handleSavePaymentReceiver} className="space-y-4 pt-1">
+                    <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                      <div>
+                        <label className="font-bold text-[#192E4D] block mb-1">
+                          Google Pay UPI ID (VPA) <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={adminGpayVpa}
+                          onChange={(e) => setAdminGpayVpa(e.target.value)}
+                          placeholder="ayishanp1986@oksbi"
+                          className="w-full h-11 px-3.5 border border-[#E6EAF0] rounded-xl font-mono text-xs focus:outline-hidden focus:border-[#08A9A2] bg-white"
+                        />
+                        <p className="text-[10px] text-[#697586] mt-1">Must be a valid active UPI ID registered in Google Pay.</p>
+                      </div>
+
+                      <div>
+                        <label className="font-bold text-[#192E4D] block mb-1">
+                          Account Holder / Merchant Beneficiary Name <span className="text-rose-500">*</span>
+                        </label>
+                        <input
+                          type="text"
+                          required
+                          value={adminGpayName}
+                          onChange={(e) => setAdminGpayName(e.target.value)}
+                          placeholder="Ayisha N.P."
+                          className="w-full h-11 px-3.5 border border-[#E6EAF0] rounded-xl text-xs focus:outline-hidden focus:border-[#08A9A2] bg-white font-bold"
+                        />
+                        <p className="text-[10px] text-[#697586] mt-1">Exact name as shown in the connected bank account.</p>
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-end gap-2 pt-2 border-t border-[#F0F4F8]">
+                      <button
+                        type="button"
+                        onClick={() => setIsEditingGpay(false)}
+                        className="h-10 px-4 rounded-xl border border-slate-200 text-slate-700 hover:bg-slate-50 font-bold text-xs cursor-pointer"
+                      >
+                        Cancel
+                      </button>
+                      <button
+                        type="submit"
+                        className="h-10 px-5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white font-extrabold text-xs shadow-xs cursor-pointer flex items-center gap-1.5"
+                      >
+                        <Check className="w-3.5 h-3.5" />
+                        <span>Save Settlement Receiver</span>
+                      </button>
+                    </div>
+                  </form>
+                )}
+              </div>
+
               {/* DANGER ZONE: LOGOUT BUTTON */}
               <div className="p-5 rounded-2xl bg-white border border-rose-200 shadow-2xs space-y-3 text-xs">
                 <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
@@ -1540,6 +1749,9 @@ export const AdminDashboard: React.FC = () => {
               </div>
             </div>
           )}
+
+          {/* MODULE: PUSH NOTIFICATIONS & BROADCAST STUDIO */}
+          {adminModule === 'notifications' && <AdminNotificationStudio />}
         </main>
       </div>
 

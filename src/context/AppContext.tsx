@@ -17,6 +17,10 @@ import {
   CustomerProfile,
   AdminRole,
   OrderStatus,
+  AppNotification,
+  AdminNotificationSettings,
+  CustomerNotificationPreferences,
+  NotificationBroadcastCampaign,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -30,7 +34,11 @@ import {
   INITIAL_SUPPORT_TICKETS,
   INITIAL_ADMIN_USERS,
   INITIAL_AUDIT_LOGS,
+  INITIAL_NOTIFICATIONS,
+  INITIAL_ADMIN_NOTIFICATION_SETTINGS,
+  INITIAL_NOTIFICATION_CAMPAIGNS,
 } from '../data/seedData';
+import { NotificationService } from '../services/notificationService';
 import {
   calculateOrderPricing,
   isValidStatusTransition,
@@ -62,6 +70,7 @@ export type AdminModuleTab =
   | 'settings'
   | 'admin_users'
   | 'audit_logs'
+  | 'notifications'
   | 'flutter_export';
 
 interface AppContextType {
@@ -176,6 +185,36 @@ interface AppContextType {
   deleteAdminUser: (adminId: string) => { success: boolean; message?: string };
   switchAdminUser: (adminId: string) => { success: boolean; message?: string };
   toggleAdminUserStatus: (adminId: string) => void;
+
+  // Notifications & FCM Engine
+  notifications: AppNotification[];
+  unreadCustomerCount: number;
+  unreadAdminCount: number;
+  adminNotifSettings: AdminNotificationSettings;
+  customerNotifPrefs: CustomerNotificationPreferences;
+  notificationCampaigns: NotificationBroadcastCampaign[];
+  pushPermission: NotificationPermission;
+  fcmDeviceToken: string | null;
+  isNotificationCenterOpen: boolean;
+  setIsNotificationCenterOpen: (open: boolean) => void;
+  isNotifPreferencesOpen: boolean;
+  setIsNotifPreferencesOpen: (open: boolean) => void;
+  sendNotification: (notif: Omit<AppNotification, 'id' | 'createdAt' | 'isRead' | 'deliveryStatus'>) => void;
+  markNotificationAsRead: (id: string) => void;
+  markAllNotificationsAsRead: (role: 'customer' | 'admin') => void;
+  deleteNotification: (id: string) => void;
+  clearAllNotifications: (role: 'customer' | 'admin') => void;
+  requestPushPermission: () => Promise<boolean>;
+  updateAdminNotifSettings: (settings: Partial<AdminNotificationSettings>) => void;
+  updateCustomerNotifPrefs: (prefs: Partial<CustomerNotificationPreferences>) => void;
+  dispatchNotificationCampaign: (data: {
+    title: string;
+    message: string;
+    audience: 'all' | 'buyers' | 'wishlist';
+    deepLink?: string;
+    bannerImage?: string;
+  }) => Promise<{ success: boolean; count: number }>;
+  handleNotificationClick: (notif: AppNotification) => void;
 }
 
 const AppContext = createContext<AppContextType | undefined>(undefined);
@@ -374,6 +413,72 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
   });
 
+  // Notifications State & Persistence
+  const [notifications, setNotifications] = useState<AppNotification[]>(() => {
+    try {
+      const saved = localStorage.getItem('zoodi_notifications');
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATIONS;
+    } catch {
+      return INITIAL_NOTIFICATIONS;
+    }
+  });
+
+  const [adminNotifSettings, setAdminNotifSettings] = useState<AdminNotificationSettings>(() => {
+    try {
+      const saved = localStorage.getItem('zoodi_admin_notification_settings');
+      return saved ? JSON.parse(saved) : INITIAL_ADMIN_NOTIFICATION_SETTINGS;
+    } catch {
+      return INITIAL_ADMIN_NOTIFICATION_SETTINGS;
+    }
+  });
+
+  const [customerNotifPrefs, setCustomerNotifPrefs] = useState<CustomerNotificationPreferences>(() => {
+    try {
+      const saved = localStorage.getItem('zoodi_customer_notif_prefs');
+      return saved
+        ? JSON.parse(saved)
+        : {
+            orderUpdates: true,
+            promotionsAndOffers: true,
+            backInStockAlerts: true,
+            accountSecurity: true,
+            browserPushEnabled: true,
+          };
+    } catch {
+      return {
+        orderUpdates: true,
+        promotionsAndOffers: true,
+        backInStockAlerts: true,
+        accountSecurity: true,
+        browserPushEnabled: true,
+      };
+    }
+  });
+
+  const [notificationCampaigns, setNotificationCampaigns] = useState<NotificationBroadcastCampaign[]>(() => {
+    try {
+      const saved = localStorage.getItem('zoodi_notification_campaigns');
+      return saved ? JSON.parse(saved) : INITIAL_NOTIFICATION_CAMPAIGNS;
+    } catch {
+      return INITIAL_NOTIFICATION_CAMPAIGNS;
+    }
+  });
+
+  const [fcmDeviceToken, setFcmDeviceToken] = useState<string | null>(() => {
+    try {
+      return localStorage.getItem('zoodi_fcm_device_token');
+    } catch {
+      return null;
+    }
+  });
+
+  const [pushPermission, setPushPermission] = useState<NotificationPermission>(() => {
+    return NotificationService.getPermission();
+  });
+
+  const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
+  const [isNotifPreferencesOpen, setIsNotifPreferencesOpen] = useState(false);
+
   // Sync to localStorage & IndexedDB
   useEffect(() => {
     dbLoadCoupons().then((dbCoupons) => {
@@ -438,6 +543,22 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     localStorage.setItem('zoodi_admin_users', JSON.stringify(adminUsers));
   }, [adminUsers]);
 
+  useEffect(() => {
+    localStorage.setItem('zoodi_notifications', JSON.stringify(notifications));
+  }, [notifications]);
+
+  useEffect(() => {
+    localStorage.setItem('zoodi_admin_notification_settings', JSON.stringify(adminNotifSettings));
+  }, [adminNotifSettings]);
+
+  useEffect(() => {
+    localStorage.setItem('zoodi_customer_notif_prefs', JSON.stringify(customerNotifPrefs));
+  }, [customerNotifPrefs]);
+
+  useEffect(() => {
+    localStorage.setItem('zoodi_notification_campaigns', JSON.stringify(notificationCampaigns));
+  }, [notificationCampaigns]);
+
   // Robust navigation helper with browser history and route synchronization
   const navigateTo = useCallback((route: string) => {
     const isTargetAdmin =
@@ -491,6 +612,221 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     };
     setAuditLogs((prev) => [newLog, ...prev]);
   };
+
+  // Notifications Engine Implementation
+  const handleDeepLinkRoute = useCallback((link: string) => {
+    if (!link) return;
+    if (link.startsWith('order:')) {
+      const orderId = link.replace('order:', '');
+      setSelectedOrderId(orderId);
+      setActiveScreen('order_tracking');
+      setIsNotificationCenterOpen(false);
+    } else if (link.startsWith('product:')) {
+      const prodId = link.replace('product:', '');
+      setSelectedProductId(prodId);
+      setActiveScreen('product_detail');
+      setIsNotificationCenterOpen(false);
+    } else if (link.startsWith('category:')) {
+      const catId = link.replace('category:', '');
+      setSelectedCategorySlug(catId);
+      setCustomerTab('categories');
+      setActiveScreen('tab');
+      setIsNotificationCenterOpen(false);
+    } else if (link.startsWith('admin:')) {
+      const mod = link.replace('admin:', '') as AdminModuleTab;
+      setAdminModule(mod);
+      navigateTo('/superadmin');
+      setIsNotificationCenterOpen(false);
+    } else if (link.startsWith('tab:')) {
+      const tab = link.replace('tab:', '') as CustomerTab;
+      setCustomerTab(tab);
+      setActiveScreen('tab');
+      setIsNotificationCenterOpen(false);
+    }
+  }, [navigateTo]);
+
+  useEffect(() => {
+    NotificationService.initServiceWorker().then(() => {
+      NotificationService.registerFCMToken(customerProfile.id, 'customer').then((tok) => {
+        if (tok) setFcmDeviceToken(tok);
+      });
+      NotificationService.listenToForeground((msg) => {
+        sendNotification({
+          recipientRole: 'customer',
+          type: 'promotional',
+          title: msg.title,
+          message: msg.body,
+          deepLink: msg.deepLink,
+        });
+      });
+    });
+
+    const handleDeepLinkEvent = (e: any) => {
+      const link = e.detail?.deepLink;
+      if (link) {
+        handleDeepLinkRoute(link);
+      }
+    };
+
+    window.addEventListener('ZOODI_NOTIFICATION_DEEPLINK', handleDeepLinkEvent);
+    return () => {
+      window.removeEventListener('ZOODI_NOTIFICATION_DEEPLINK', handleDeepLinkEvent);
+    };
+  }, [handleDeepLinkRoute, customerProfile.id, isCustomerLoggedIn]);
+
+  const sendNotification = useCallback(
+    (notif: Omit<AppNotification, 'id' | 'createdAt' | 'isRead' | 'deliveryStatus'>) => {
+      if (notif.recipientRole === 'customer') {
+        if (notif.type === 'promotional' && !customerNotifPrefs.promotionsAndOffers) return;
+        if (notif.type === 'order_status' && !customerNotifPrefs.orderUpdates) return;
+        if (notif.type === 'back_in_stock' && !customerNotifPrefs.backInStockAlerts) return;
+        if (notif.type === 'account_security' && !customerNotifPrefs.accountSecurity) return;
+      } else if (notif.recipientRole === 'admin') {
+        if (notif.type === 'order_placed' && !adminNotifSettings.enableOrderAlerts) return;
+        if (notif.type === 'payment_success' && !adminNotifSettings.enablePaymentAlerts) return;
+        if ((notif.type === 'low_stock' || notif.type === 'out_of_stock') && !adminNotifSettings.enableStockAlerts) return;
+        if (notif.type === 'catalogue_update' && !adminNotifSettings.enableCatalogueAlerts) return;
+      }
+
+      const newNotif: AppNotification = {
+        ...notif,
+        id: `notif_${Date.now()}_${Math.random().toString(36).substring(2, 7)}`,
+        createdAt: new Date().toISOString(),
+        isRead: false,
+        deliveryStatus: 'delivered',
+      };
+
+      setNotifications((prev) => [newNotif, ...prev]);
+
+      const soundEnabled = notif.recipientRole === 'admin' ? adminNotifSettings.soundEnabled : true;
+      const pushEnabled =
+        notif.recipientRole === 'admin'
+          ? adminNotifSettings.browserPushEnabled
+          : customerNotifPrefs.browserPushEnabled;
+
+      if (soundEnabled) {
+        NotificationService.playChime(notif.type === 'order_placed' ? 'success' : 'standard');
+      }
+
+      if (pushEnabled) {
+        NotificationService.dispatchSystemPushNotification(notif.title, {
+          body: notif.message,
+          deepLink: notif.deepLink,
+          sound: false,
+        });
+      }
+    },
+    [customerNotifPrefs, adminNotifSettings]
+  );
+
+  const markNotificationAsRead = (id: string) => {
+    setNotifications((prev) => prev.map((n) => (n.id === id ? { ...n, isRead: true } : n)));
+  };
+
+  const markAllNotificationsAsRead = (role: 'customer' | 'admin') => {
+    setNotifications((prev) =>
+      prev.map((n) => {
+        if (role === 'customer' && n.recipientRole !== 'admin') {
+          return { ...n, isRead: true };
+        }
+        if (role === 'admin' && (n.recipientRole === 'admin' || n.recipientRole === 'all')) {
+          return { ...n, isRead: true };
+        }
+        return n;
+      })
+    );
+  };
+
+  const deleteNotification = (id: string) => {
+    setNotifications((prev) => prev.filter((n) => n.id !== id));
+  };
+
+  const clearAllNotifications = (role: 'customer' | 'admin') => {
+    setNotifications((prev) =>
+      prev.filter((n) => {
+        if (role === 'customer') return n.recipientRole === 'admin';
+        return n.recipientRole === 'customer';
+      })
+    );
+  };
+
+  const requestPushPermission = async (): Promise<boolean> => {
+    const res = await NotificationService.requestPermission();
+    setPushPermission(res);
+    if (res === 'granted') {
+      const tok = await NotificationService.registerFCMToken();
+      if (tok) setFcmDeviceToken(tok);
+      return true;
+    }
+    return false;
+  };
+
+  const updateAdminNotifSettings = (settings: Partial<AdminNotificationSettings>) => {
+    setAdminNotifSettings((prev) => ({ ...prev, ...settings }));
+    recordAudit('ADMIN_NOTIFICATION_SETTINGS', 'Updated admin alert and sound trigger settings');
+  };
+
+  const updateCustomerNotifPrefs = (prefs: Partial<CustomerNotificationPreferences>) => {
+    setCustomerNotifPrefs((prev) => ({ ...prev, ...prefs }));
+  };
+
+  const dispatchNotificationCampaign = async (data: {
+    title: string;
+    message: string;
+    audience: 'all' | 'buyers' | 'wishlist';
+    deepLink?: string;
+    bannerImage?: string;
+  }): Promise<{ success: boolean; count: number }> => {
+    const audienceCount = data.audience === 'all' ? 1420 : data.audience === 'buyers' ? 680 : 340;
+    const campaignId = `cmp_${Date.now()}`;
+    const newCampaign: NotificationBroadcastCampaign = {
+      id: campaignId,
+      title: data.title,
+      message: data.message,
+      audience: data.audience,
+      deepLink: data.deepLink,
+      bannerImage: data.bannerImage,
+      sentAt: new Date().toISOString(),
+      sentByAdminName: currentAdmin?.name || 'Super Admin',
+      targetCount: audienceCount,
+      deliveredCount: Math.round(audienceCount * 0.98),
+      openCount: 0,
+      status: 'sent',
+    };
+
+    setNotificationCampaigns((prev) => [newCampaign, ...prev]);
+
+    sendNotification({
+      recipientRole: 'customer',
+      type: 'promotional',
+      title: data.title,
+      message: data.message,
+      deepLink: data.deepLink,
+      campaignId,
+      senderAdminName: currentAdmin?.name || 'Super Admin',
+    });
+
+    recordAudit(
+      'NOTIFICATION_CAMPAIGN_BROADCAST',
+      `Dispatched push broadcast "${data.title}" to ${data.audience} (${audienceCount} customers)`
+    );
+    return { success: true, count: audienceCount };
+  };
+
+  const handleNotificationClick = (notif: AppNotification) => {
+    markNotificationAsRead(notif.id);
+    if (notif.deepLink) {
+      handleDeepLinkRoute(notif.deepLink);
+    }
+  };
+
+  const unreadCustomerCount = notifications.filter(
+    (n) => n.recipientRole !== 'admin' && !n.isRead
+  ).length;
+
+  const unreadAdminCount = notifications.filter(
+    (n) => (n.recipientRole === 'admin' || n.recipientRole === 'all') && !n.isRead
+  ).length;
 
   // Customer: Add to cart
   const addToCart = (
@@ -718,6 +1054,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveCoupon(null);
     setSelectedOrderId(orderId);
 
+    // Customer Notification: Order Placed
+    sendNotification({
+      recipientRole: 'customer',
+      type: 'order_status',
+      title: 'Order Placed Successfully! 🎉',
+      message: `Your order #${orderId} for ₹${Math.round(pricing.total).toLocaleString('en-IN')} has been placed.`,
+      deepLink: `order:${orderId}`,
+      orderId,
+    });
+
+    // Customer Notification: Payment Confirmation
+    if (paymentMethod !== 'cod') {
+      sendNotification({
+        recipientRole: 'customer',
+        type: 'payment_success',
+        title: 'Payment Confirmed 💳',
+        message: `Payment of ₹${Math.round(pricing.total).toLocaleString('en-IN')} confirmed via ${paidViaText}.`,
+        deepLink: `order:${orderId}`,
+        orderId,
+      });
+    }
+
+    // Admin Notification: New Order Alert
+    sendNotification({
+      recipientRole: 'admin',
+      type: 'order_placed',
+      title: 'New Order Received! 🛍️',
+      message: `Order #${orderId} (${address.name}) • ₹${Math.round(pricing.total).toLocaleString('en-IN')} • ${paymentMethod.toUpperCase()}`,
+      deepLink: 'admin:orders',
+      orderId,
+    });
+
     return { success: true, orderId };
   };
 
@@ -769,6 +1137,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       ],
     };
     setSupportTickets((prev) => [newTicket, ...prev]);
+
+    // Admin alert for new support inquiry
+    sendNotification({
+      recipientRole: 'admin',
+      type: 'support_ticket',
+      title: 'New Support Ticket 💬',
+      message: `${customerProfile.name}: ${subject}`,
+      deepLink: 'admin:support',
+    });
   };
 
   const replyToSupportTicket = (ticketId: string, message: string, isCustomer: boolean) => {
@@ -791,6 +1168,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return t;
       })
     );
+
+    if (!isCustomer) {
+      sendNotification({
+        recipientRole: 'customer',
+        type: 'support_ticket',
+        title: 'Support Response 💬',
+        message: `ZOODI Support replied: ${message.slice(0, 75)}...`,
+        deepLink: 'tab:profile',
+      });
+    } else {
+      sendNotification({
+        recipientRole: 'admin',
+        type: 'support_ticket',
+        title: 'Support Ticket Reply 💬',
+        message: `Customer replied on ticket #${ticketId}`,
+        deepLink: 'admin:support',
+      });
+    }
   };
 
   // Customer authentication & session management
@@ -807,6 +1202,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         email: email || prev.email,
         name: name || prev.name,
       }));
+    }
+    NotificationService.registerFCMToken(customerProfile.id, 'customer');
+    if (adminNotifSettings.enableCustomerAlerts) {
+      sendNotification({
+        recipientRole: 'admin',
+        type: 'account_security',
+        title: 'Customer Activity 👤',
+        message: `${name || email || 'A customer'} signed into the app (${method.toUpperCase()}).`,
+        deepLink: 'admin:customers',
+      });
     }
   };
 
@@ -833,6 +1238,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     setCurrentAdmin(found);
+    NotificationService.registerFCMToken(found.id, 'admin');
     recordAudit('ADMIN_LOGIN', `Admin ${found.name} (${found.role}) logged into management portal`);
     return { success: true };
   };
@@ -886,6 +1292,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         'PRODUCT_CREATE',
         `Created product: ${sanitizedProduct.name} (${sanitizedProduct.id}) - Base Price ₹${sanitizedProduct.price}`
       );
+      if (adminNotifSettings.enableCatalogueAlerts) {
+        sendNotification({
+          recipientRole: 'admin',
+          type: 'catalogue_update',
+          title: 'Product Published 🏷️',
+          message: `Product "${sanitizedProduct.name}" added to store catalogue.`,
+          deepLink: 'admin:products',
+        });
+      }
     }
   };
 
@@ -1157,6 +1572,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       })
     );
 
+    const statusTitles: Record<OrderStatus, string> = {
+      placed: 'Order Placed',
+      confirmed: 'Order Confirmed! ✅',
+      processing: 'Order Processing ⚙️',
+      packed: 'Order Packed & Ready 📦',
+      shipped: 'Order Shipped 🚚',
+      out_for_delivery: 'Out for Delivery 🛵',
+      delivered: 'Order Delivered! 🎊',
+      cancelled: 'Order Cancelled ⚠️',
+      refunded: 'Refund Processed 💰',
+    };
+
+    const statusMessages: Record<OrderStatus, string> = {
+      placed: `Your order #${orderId} is placed and under review.`,
+      confirmed: `Your order #${orderId} has been confirmed by our store team.`,
+      processing: `Your order #${orderId} is currently being processed by fulfillment.`,
+      packed: `Your order #${orderId} is packed with care and awaiting pickup.`,
+      shipped: courierData
+        ? `Your order #${orderId} has been dispatched via ${courierData.courier} (AWB: ${courierData.trackingNumber}).`
+        : `Your order #${orderId} has been dispatched.`,
+      out_for_delivery: `Your order #${orderId} is out for delivery today. Keep your phone handy!`,
+      delivered: `Your order #${orderId} has been successfully delivered. Enjoy your purchase!`,
+      cancelled: `Your order #${orderId} has been cancelled. Any eligible refund will be credited.`,
+      refunded: `Refund for order #${orderId} has been processed back to your payment account.`,
+    };
+
+    // Customer status push notification
+    sendNotification({
+      recipientRole: 'customer',
+      type: newStatus === 'cancelled' ? 'refund' : 'order_status',
+      title: statusTitles[newStatus] || `Order Status: ${newStatus}`,
+      message: statusMessages[newStatus] || `Your order #${orderId} status changed to ${newStatus}.`,
+      deepLink: `order:${orderId}`,
+      orderId,
+    });
+
+    // Admin cancellation alert
+    if (newStatus === 'cancelled') {
+      sendNotification({
+        recipientRole: 'admin',
+        type: 'refund',
+        title: 'Order Cancelled ⚠️',
+        message: `Order #${orderId} cancelled by ${currentAdmin?.name || 'Administrator'}.`,
+        deepLink: 'admin:orders',
+        orderId,
+      });
+    }
+
     recordAudit('ORDER_STATUS_UPDATE', `Order ${orderId} moved to ${newStatus}`);
     return { success: true };
   };
@@ -1167,6 +1630,37 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     newStock: number,
     sizeStock?: Record<string, number>
   ) => {
+    const prod = products.find((p) => p.id === productId);
+    const existingVariant = prod?.variants.find((v) => v.id === variantId);
+    const prodLabel = prod ? `${prod.name} (${existingVariant?.colorName || 'Variant'})` : 'Product';
+
+    if (newStock === 0) {
+      sendNotification({
+        recipientRole: 'admin',
+        type: 'out_of_stock',
+        title: 'Out of Stock Alert! 🚨',
+        message: `${prodLabel} is now completely out of stock (0 units).`,
+        deepLink: 'admin:inventory',
+      });
+    } else if (newStock <= 5) {
+      sendNotification({
+        recipientRole: 'admin',
+        type: 'low_stock',
+        title: 'Low Stock Warning ⚠️',
+        message: `${prodLabel} is running low (${newStock} units remaining).`,
+        deepLink: 'admin:inventory',
+      });
+    } else if (existingVariant && existingVariant.stock === 0 && newStock > 0) {
+      // Replenished from 0 -> customer back in stock alert
+      sendNotification({
+        recipientRole: 'customer',
+        type: 'back_in_stock',
+        title: 'Back in Stock! ✨',
+        message: `${prodLabel} is back in stock! Grab yours before it sells out again.`,
+        deepLink: `product:${productId}`,
+      });
+    }
+
     setProducts((prev) =>
       prev.map((p) => {
         if (p.id === productId) {
@@ -1403,6 +1897,28 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         deleteAdminUser,
         switchAdminUser,
         toggleAdminUserStatus,
+        notifications,
+        unreadCustomerCount,
+        unreadAdminCount,
+        adminNotifSettings,
+        customerNotifPrefs,
+        notificationCampaigns,
+        pushPermission,
+        fcmDeviceToken,
+        isNotificationCenterOpen,
+        setIsNotificationCenterOpen,
+        isNotifPreferencesOpen,
+        setIsNotifPreferencesOpen,
+        sendNotification,
+        markNotificationAsRead,
+        markAllNotificationsAsRead,
+        deleteNotification,
+        clearAllNotifications,
+        requestPushPermission,
+        updateAdminNotifSettings,
+        updateCustomerNotifPrefs,
+        dispatchNotificationCampaign,
+        handleNotificationClick,
       }}
     >
       {children}
