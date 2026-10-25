@@ -1,4 +1,4 @@
-import React, { useEffect } from 'react';
+import React, { useEffect, useRef } from 'react';
 import { AppProvider, useApp } from './context/AppContext';
 import { CustomerHeader } from './components/CustomerHeader';
 import { CustomerBottomNav } from './components/CustomerBottomNav';
@@ -12,6 +12,7 @@ import { WishlistScreen } from './views/customer/WishlistScreen';
 import { AccountScreen } from './views/customer/AccountScreen';
 import { SearchModal } from './views/customer/SearchModal';
 import { CustomerLoginScreen } from './views/customer/CustomerLoginScreen';
+import { NotFoundScreen } from './views/customer/NotFoundScreen';
 import { CouponsAndDealsModal } from './components/customer/CouponsAndDealsModal';
 import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { CustomerNotificationPreferencesModal } from './components/CustomerNotificationPreferencesModal';
@@ -25,7 +26,15 @@ const AppShell: React.FC = () => {
     navigateTo,
     currentAdmin,
     customerTab,
+    setCustomerTab,
     activeScreen,
+    setActiveScreen,
+    selectedProductId,
+    setSelectedProductId,
+    selectedOrderId,
+    setSelectedOrderId,
+    selectedCategorySlug,
+    setSelectedCategorySlug,
     isOnline,
     setIsOnline,
     setAdminModule,
@@ -33,12 +42,19 @@ const AppShell: React.FC = () => {
     setDeviceFrameMode,
   } = useApp();
 
-  // Listen to browser URL path, query params, and hash changes for deep linking
+  // Flag to avoid pushState loops when syncing state from browser URL (popstate / initial load)
+  const isNavigatingFromUrl = useRef(false);
+
+  // Synchronize state from browser URL on initial load and popstate/hashchange
   useEffect(() => {
     const checkRoute = () => {
-      const path = window.location.pathname.toLowerCase();
+      isNavigatingFromUrl.current = true;
+      const rawPath = window.location.pathname;
+      const path = rawPath.toLowerCase().replace(/\/+$/, '') || '/';
       const hash = window.location.hash.toLowerCase();
-      const search = window.location.search.toLowerCase();
+      const search = window.location.search;
+      const searchLower = search.toLowerCase();
+      const searchParams = new URLSearchParams(search);
 
       // Explicit admin route detection
       const isAdminRoute =
@@ -48,9 +64,9 @@ const AppShell: React.FC = () => {
         hash === '#/superadmin' ||
         hash.startsWith('#/superadmin') ||
         hash.startsWith('#/admin') ||
-        search.includes('superadmin') ||
-        search.includes('admin=1') ||
-        search.includes('view=admin');
+        searchLower.includes('superadmin') ||
+        searchLower.includes('admin=1') ||
+        searchLower.includes('view=admin');
 
       if (isAdminRoute) {
         if (currentRoute !== '/superadmin') {
@@ -63,23 +79,88 @@ const AppShell: React.FC = () => {
           path.includes('rbac') ||
           hash.includes('roles') ||
           hash.includes('rbac') ||
-          search.includes('roles') ||
-          search.includes('module=admin_users')
+          searchLower.includes('roles') ||
+          searchLower.includes('module=admin_users')
         ) {
           setAdminModule('admin_users');
         } else {
-          const match = window.location.search.match(/module=([a-z_]+)/i);
-          if (match && match[1]) {
-            setAdminModule(match[1] as any);
+          const modParam = searchParams.get('module');
+          if (modParam) {
+            setAdminModule(modParam as any);
           }
         }
       } else {
-        // Public customer storefront route
-        if (currentRoute !== '/') {
-          navigateTo('/');
+        // Customer Storefront Routing
+        if (path === '/' || path === '/home' || path === '/shop') {
+          setSelectedCategorySlug(null);
+          setCustomerTab('home');
+          setActiveScreen('tab');
+        } else if (path === '/cart' || path === '/bag') {
+          setCustomerTab('cart');
+          setActiveScreen('tab');
+        } else if (path === '/checkout') {
+          setActiveScreen('checkout');
+        } else if (path === '/wishlist' || path === '/favorites') {
+          setCustomerTab('wishlist');
+          setActiveScreen('tab');
+        } else if (path === '/account' || path === '/profile' || path === '/user') {
+          setCustomerTab('account');
+          setActiveScreen('tab');
+        } else if (path === '/categories' || path === '/explore') {
+          const catParam = searchParams.get('category') || searchParams.get('cat') || searchParams.get('slug');
+          if (catParam) {
+            setSelectedCategorySlug(catParam);
+          }
+          setCustomerTab('categories');
+          setActiveScreen('tab');
+        } else if (path.match(/^\/categor(?:y|ies)\/([^/]+)/)) {
+          const match = path.match(/^\/categor(?:y|ies)\/([^/]+)/);
+          const slug = match ? match[1] : null;
+          if (slug) setSelectedCategorySlug(slug);
+          setCustomerTab('categories');
+          setActiveScreen('tab');
+        } else if (path.match(/^\/product(?:s)?\/([^/]+)/)) {
+          const match = rawPath.match(/^\/product(?:s)?\/([^/]+)/i);
+          const prodId = match ? match[1] : null;
+          if (prodId) {
+            setSelectedProductId(prodId);
+            setActiveScreen('product_detail');
+          }
+        } else if (path === '/product' || path === '/products') {
+          const id = searchParams.get('id');
+          if (id) {
+            setSelectedProductId(id);
+            setActiveScreen('product_detail');
+          } else {
+            setCustomerTab('home');
+            setActiveScreen('tab');
+          }
+        } else if (path.match(/^\/order(?:s)?\/([^/]+)/)) {
+          const match = rawPath.match(/^\/order(?:s)?\/([^/]+)/i);
+          const orderId = match ? match[1] : null;
+          if (orderId) {
+            setSelectedOrderId(orderId);
+            setActiveScreen('order_tracking');
+          }
+        } else if (path === '/orders' || path === '/order-tracking' || path === '/order-history') {
+          const id = searchParams.get('id');
+          if (id) setSelectedOrderId(id);
+          setActiveScreen('order_tracking');
+        } else if (path === '/login' || path === '/signin' || path === '/customer-login' || path === '/auth') {
+          setActiveScreen('login');
+        } else if (path === '/search') {
+          setActiveScreen('search');
+        } else {
+          // Unrecognized route -> 404 Not Found
+          setActiveScreen('not_found');
         }
       }
+
+      setTimeout(() => {
+        isNavigatingFromUrl.current = false;
+      }, 50);
     };
+
     checkRoute();
     window.addEventListener('popstate', checkRoute);
     window.addEventListener('hashchange', checkRoute);
@@ -98,7 +179,52 @@ const AppShell: React.FC = () => {
       window.removeEventListener('hashchange', checkRoute);
       window.removeEventListener('keydown', handleKeyDown);
     };
-  }, [navigateTo]);
+  }, [navigateTo, setCustomerTab, setActiveScreen, setSelectedProductId, setSelectedOrderId, setSelectedCategorySlug, setAdminModule, currentRoute]);
+
+  // Synchronize browser address bar when user navigates using in-app buttons & tabs
+  useEffect(() => {
+    if (isNavigatingFromUrl.current) return;
+    if (typeof window === 'undefined') return;
+
+    if (currentRoute === '/superadmin') {
+      if (!window.location.pathname.startsWith('/superadmin') && !window.location.pathname.startsWith('/admin')) {
+        window.history.pushState(null, '', '/superadmin');
+      }
+      return;
+    }
+
+    let targetPath = '/';
+    if (activeScreen === 'login') {
+      targetPath = '/login';
+    } else if (activeScreen === 'product_detail' && selectedProductId) {
+      targetPath = `/product/${selectedProductId}`;
+    } else if (activeScreen === 'checkout') {
+      targetPath = '/checkout';
+    } else if (activeScreen === 'order_tracking') {
+      targetPath = selectedOrderId ? `/order/${selectedOrderId}` : '/orders';
+    } else if (activeScreen === 'search') {
+      targetPath = '/search';
+    } else if (activeScreen === 'not_found') {
+      // Keep current invalid path in URL for 404 display
+      return;
+    } else if (activeScreen === 'tab') {
+      if (customerTab === 'home') {
+        targetPath = selectedCategorySlug ? `/category/${selectedCategorySlug}` : '/';
+      } else if (customerTab === 'categories') {
+        targetPath = selectedCategorySlug ? `/category/${selectedCategorySlug}` : '/categories';
+      } else if (customerTab === 'cart') {
+        targetPath = '/cart';
+      } else if (customerTab === 'wishlist') {
+        targetPath = '/wishlist';
+      } else if (customerTab === 'account') {
+        targetPath = '/account';
+      }
+    }
+
+    if (window.location.pathname !== targetPath) {
+      window.history.pushState(null, '', targetPath);
+    }
+  }, [currentRoute, activeScreen, customerTab, selectedProductId, selectedOrderId, selectedCategorySlug]);
 
   // If on admin route:
   if (currentRoute === '/superadmin') {
@@ -192,6 +318,7 @@ const AppShell: React.FC = () => {
         {activeScreen === 'product_detail' && <ProductDetailScreen />}
         {activeScreen === 'checkout' && <CheckoutScreen />}
         {activeScreen === 'order_tracking' && <OrderTrackingScreen />}
+        {activeScreen === 'not_found' && <NotFoundScreen />}
 
         {activeScreen === 'tab' && (
           <div className="flex flex-col min-h-screen">

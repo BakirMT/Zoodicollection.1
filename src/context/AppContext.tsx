@@ -571,31 +571,66 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setCurrentRoute('/superadmin');
       try {
         if (typeof window !== 'undefined') {
+          const targetUrl = route.startsWith('/') ? route : `/${route}`;
           if (window.location.pathname !== '/superadmin' && !window.location.hash.includes('superadmin')) {
-            window.history.pushState({ route: '/superadmin' }, '', '/superadmin');
+            window.history.pushState({ route: '/superadmin' }, '', targetUrl);
           }
         }
       } catch {
         // ignore history state exceptions in sandboxed environments
       }
     } else {
-      // Navigate to public customer storefront ('/' or shop home)
       setCurrentRoute('/');
-      setCustomerTab('home');
-      setActiveScreen('tab');
-      setSelectedCategorySlug(null);
+      const clean = route.startsWith('/') ? route : `/${route}`;
 
-      // Clean browser URL (clears /superadmin, #/superadmin, and admin query params like module=)
+      if (clean === '/' || clean === '/home') {
+        setCustomerTab('home');
+        setActiveScreen('tab');
+        setSelectedCategorySlug(null);
+      } else if (clean === '/cart' || clean === '/bag') {
+        setCustomerTab('cart');
+        setActiveScreen('tab');
+      } else if (clean === '/checkout') {
+        setActiveScreen('checkout');
+      } else if (clean === '/wishlist') {
+        setCustomerTab('wishlist');
+        setActiveScreen('tab');
+      } else if (clean === '/account' || clean === '/profile') {
+        setCustomerTab('account');
+        setActiveScreen('tab');
+      } else if (clean === '/categories' || clean === '/explore') {
+        setCustomerTab('categories');
+        setActiveScreen('tab');
+      } else if (clean.startsWith('/category/')) {
+        const slug = clean.replace('/category/', '');
+        setSelectedCategorySlug(slug);
+        setCustomerTab('categories');
+        setActiveScreen('tab');
+      } else if (clean.startsWith('/product/')) {
+        const prodId = clean.replace('/product/', '');
+        setSelectedProductId(prodId);
+        setActiveScreen('product_detail');
+      } else if (clean.startsWith('/order/')) {
+        const orderId = clean.replace('/order/', '');
+        setSelectedOrderId(orderId);
+        setActiveScreen('order_tracking');
+      } else if (clean === '/login' || clean === '/signin') {
+        setActiveScreen('login');
+      } else if (clean === '/search') {
+        setActiveScreen('search');
+      } else {
+        setCustomerTab('home');
+        setActiveScreen('tab');
+      }
+
       try {
         if (typeof window !== 'undefined') {
-          window.history.pushState({ route: '/' }, '', '/');
+          if (window.location.pathname !== clean) {
+            window.history.pushState({ route: clean }, '', clean);
+          }
         }
       } catch {
-        try {
-          if (window.location.hash.includes('admin') || window.location.hash.includes('superadmin')) {
-            window.location.hash = '';
-          }
-        } catch {}
+        // ignore
       }
     }
   }, []);
