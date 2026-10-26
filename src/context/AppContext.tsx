@@ -173,6 +173,7 @@ interface AppContextType {
   currentAdmin: AdminUser | null;
   adminModule: AdminModuleTab;
   setAdminModule: (mod: AdminModuleTab) => void;
+  adminLoginWithGoogle: (email?: string, name?: string, avatar?: string) => { success: boolean; error?: string };
   adminLogin: (email: string, pass: string) => { success: boolean; error?: string };
   adminLogout: () => void;
   auditLogs: AuditLog[];
@@ -413,21 +414,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
 
-  // Admin state - Strictly authenticated with the single super admin: adminzoodi@2026.com
+  // Admin state - Strictly authenticated with the single super admin: zoodicollection@gmail.com
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(() => {
     try {
       const saved = localStorage.getItem('zoodi_active_admin');
       if (saved) {
         const parsed = JSON.parse(saved);
-        if (parsed.email?.toLowerCase() === 'adminzoodi@2026.com') {
+        if (parsed.email?.toLowerCase().trim() === 'zoodicollection@gmail.com') {
           return parsed;
         }
       }
     } catch {
       // ignore
     }
-    // Single unified admin account across all devices (computer & mobile)
-    return INITIAL_ADMIN_USERS[0];
+    return null;
   });
   const [adminModule, setAdminModule] = useState<AdminModuleTab>('dashboard');
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(INITIAL_ADMIN_USERS);
@@ -1389,37 +1389,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveScreen('login');
   };
 
-  // Admin authentication - strictly adminzoodi@2026.com and Admin@zoodi26
-  const adminLogin = (email: string, pass: string): { success: boolean; error?: string } => {
-    const emailNorm = email.trim().toLowerCase();
-    if (emailNorm !== 'adminzoodi@2026.com') {
-      return { success: false, error: 'Access Denied: Unrecognized administrator email. Use authorized admin email.' };
-    }
-    if (pass !== 'Admin@zoodi26') {
-      return { success: false, error: 'Access Denied: Invalid administrator password.' };
+  // Admin authentication - strictly zoodicollection@gmail.com via Google Sign-in
+  const adminLoginWithGoogle = (
+    email?: string,
+    name?: string,
+    avatar?: string
+  ): { success: boolean; error?: string } => {
+    const rawEmail = (email || '').trim().toLowerCase();
+    if (rawEmail !== 'zoodicollection@gmail.com') {
+      recordAudit(
+        'ADMIN_UNAUTHORIZED_ATTEMPT',
+        `Blocked unauthorized admin login attempt from Google account: ${rawEmail || 'unknown'}`
+      );
+      return {
+        success: false,
+        error: `Access Denied: Only authorized account zoodicollection@gmail.com can access the ZOODI Admin Portal. Account "${rawEmail || 'Unknown'}" is strictly restricted.`,
+      };
     }
 
-    const superAdminUser: AdminUser = {
-      id: 'adm_super_zoodi',
-      name: 'ZOODI Super Admin',
-      email: 'adminzoodi@2026.com',
+    const singleAdmin: AdminUser = {
+      id: 'adm_zoodi_owner',
+      name: name || 'ZOODI Super Admin',
+      email: 'zoodicollection@gmail.com',
       role: 'super_admin',
-      department: 'Executive Leadership (Kerala Hub)',
+      department: 'Sole Administrative Authority (ZOODI Hub)',
       phone: '+91 9072976516',
-      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      avatar:
+        avatar ||
+        'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
       status: 'active',
       lastActive: 'Just now',
     };
 
-    setCurrentAdmin(superAdminUser);
+    setCurrentAdmin(singleAdmin);
     try {
-      localStorage.setItem('zoodi_active_admin', JSON.stringify(superAdminUser));
+      localStorage.setItem('zoodi_active_admin', JSON.stringify(singleAdmin));
     } catch {
       // ignore
     }
-    NotificationService.registerFCMToken(superAdminUser.id, 'admin');
-    recordAudit('ADMIN_LOGIN', `Super Admin logged into management portal`);
+    NotificationService.registerFCMToken(singleAdmin.id, 'admin');
+    recordAudit('ADMIN_GOOGLE_LOGIN', `Super Admin logged into management portal via Google account (zoodicollection@gmail.com)`);
     return { success: true };
+  };
+
+  const adminLogin = (_email: string, _pass: string): { success: boolean; error?: string } => {
+    return {
+      success: false,
+      error: 'Email and password authentication has been removed. Please use "Continue with Google (zoodicollection@gmail.com)".',
+    };
   };
 
   const adminLogout = () => {
@@ -1964,108 +1981,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     user: Partial<AdminUser> & { name: string; email: string; role: AdminRole }
   ): { success: boolean; message?: string } => {
     const cleanEmail = user.email.trim().toLowerCase();
-    if (!user.name.trim()) return { success: false, message: 'Administrator name is required.' };
-    if (!cleanEmail || !cleanEmail.includes('@')) {
-      return { success: false, message: 'Valid corporate email is required.' };
-    }
-
-    if (user.id) {
-      // Update existing admin
-      const existing = adminUsers.find((u) => u.id === user.id);
-      if (!existing) return { success: false, message: 'Admin user not found.' };
-
-      // Prevent demoting the last active super_admin
-      if (existing.role === 'super_admin' && user.role !== 'super_admin') {
-        const superAdmins = adminUsers.filter((u) => u.role === 'super_admin');
-        if (superAdmins.length <= 1) {
-          return {
-            success: false,
-            message: 'Security policy: At least one Super Admin account must remain active.',
-          };
-        }
-      }
-
-      setAdminUsers((prev) =>
-        prev.map((u) => (u.id === user.id ? { ...u, ...user, email: cleanEmail } : u))
-      );
-      if (currentAdmin?.id === user.id) {
-        setCurrentAdmin((prev) => (prev ? { ...prev, ...user, email: cleanEmail } : null));
-      }
-      recordAudit('ADMIN_USER_UPDATED', `Updated admin profile for ${user.name} (${user.role})`);
-      return { success: true };
-    } else {
-      // Provision new admin
-      const duplicate = adminUsers.some((u) => u.email.toLowerCase() === cleanEmail);
-      if (duplicate) {
-        return { success: false, message: `An administrator account with email ${cleanEmail} already exists.` };
-      }
-
-      const newAdmin: AdminUser = {
-        id: `adm_${Date.now()}`,
-        name: user.name.trim(),
-        email: cleanEmail,
-        role: user.role,
-        department: user.department || 'Operations',
-        phone: user.phone || '',
-        avatar:
-          user.avatar ||
-          'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
-        lastActive: 'Never',
-        status: user.status || 'active',
+    if (cleanEmail !== 'zoodicollection@gmail.com') {
+      return {
+        success: false,
+        message: 'Strict Security Rule: Only zoodicollection@gmail.com is authorized as administrator. Multi-account creation is disabled.',
       };
-      setAdminUsers((prev) => [newAdmin, ...prev]);
-      recordAudit('ADMIN_USER_CREATED', `Provisioned new admin account: ${user.name} (${user.role})`);
-      return { success: true };
-    }
-  };
-
-  const deleteAdminUser = (adminId: string): { success: boolean; message?: string } => {
-    const target = adminUsers.find((u) => u.id === adminId);
-    if (!target) return { success: false, message: 'Admin user not found.' };
-
-    if (currentAdmin && currentAdmin.id === adminId) {
-      return { success: false, message: 'Security restriction: You cannot delete your currently active session account.' };
     }
 
-    if (target.role === 'super_admin') {
-      const superAdmins = adminUsers.filter((u) => u.role === 'super_admin');
-      if (superAdmins.length <= 1) {
-        return { success: false, message: 'Security restriction: Cannot delete the only remaining Super Admin account.' };
-      }
-    }
-
-    setAdminUsers((prev) => prev.filter((u) => u.id !== adminId));
-    recordAudit('ADMIN_USER_DELETED', `Revoked and deleted admin account: ${target.name} (${target.email})`);
-    return { success: true };
-  };
-
-  const switchAdminUser = (adminId: string): { success: boolean; message?: string } => {
-    const target = adminUsers.find((u) => u.id === adminId);
-    if (!target) return { success: false, message: 'Admin user not found.' };
-    if (target.status === 'suspended') {
-      return { success: false, message: 'Cannot switch to a suspended administrator account.' };
-    }
-
-    setCurrentAdmin(target);
-    recordAudit('ADMIN_ROLE_SIMULATION', `Session switched to simulate ${target.name} (${target.role})`);
-    return { success: true };
-  };
-
-  const toggleAdminUserStatus = (adminId: string): void => {
     setAdminUsers((prev) =>
-      prev.map((u) => {
-        if (u.id === adminId) {
-          const nextStatus = u.status === 'suspended' ? 'active' : 'suspended';
-          recordAudit('ADMIN_STATUS_CHANGED', `Admin ${u.name} status changed to ${nextStatus}`);
-          return { ...u, status: nextStatus };
-        }
-        return u;
-      })
+      prev.map((u) =>
+        u.email.toLowerCase() === 'zoodicollection@gmail.com'
+          ? { ...u, ...user, email: 'zoodicollection@gmail.com', role: 'super_admin' }
+          : u
+      )
     );
+    if (currentAdmin) {
+      const updated = { ...currentAdmin, ...user, email: 'zoodicollection@gmail.com', role: 'super_admin' as AdminRole };
+      setCurrentAdmin(updated);
+      try {
+        localStorage.setItem('zoodi_active_admin', JSON.stringify(updated));
+      } catch {}
+    }
+    recordAudit('ADMIN_USER_UPDATED', `Updated sole admin profile for zoodicollection@gmail.com`);
+    return { success: true };
   };
 
-  const addAdminUser = (name: string, email: string, role: AdminRole) => {
-    saveAdminUser({ name, email, role });
+  const deleteAdminUser = (_adminId: string): { success: boolean; message?: string } => {
+    return {
+      success: false,
+      message: 'Security policy: The primary Super Admin account (zoodicollection@gmail.com) cannot be deleted.',
+    };
+  };
+
+  const switchAdminUser = (_adminId: string): { success: boolean; message?: string } => {
+    return {
+      success: false,
+      message: 'Single Admin Architecture: All operations belong exclusively to zoodicollection@gmail.com.',
+    };
+  };
+
+  const toggleAdminUserStatus = (_adminId: string): void => {
+    // The sole super admin cannot be suspended
+  };
+
+  const addAdminUser = (_name: string, _email: string, _role: AdminRole) => {
+    saveAdminUser({ name: _name, email: _email, role: _role });
   };
 
   return (
@@ -2127,6 +2087,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentAdmin,
         adminModule,
         setAdminModule,
+        adminLoginWithGoogle,
         adminLogin,
         adminLogout,
         auditLogs,

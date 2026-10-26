@@ -1004,11 +1004,11 @@ export const INITIAL_SUPPORT_TICKETS: SupportTicket[] = [
 
 export const INITIAL_ADMIN_USERS: AdminUser[] = [
   {
-    id: 'adm_super_zoodi',
+    id: 'adm_zoodi_owner',
     name: 'ZOODI Super Admin',
-    email: 'adminzoodi@2026.com',
+    email: 'zoodicollection@gmail.com',
     role: 'super_admin',
-    department: 'Executive Leadership (Kerala Hub)',
+    department: 'Sole Administrative Authority (ZOODI Hub)',
     phone: '+91 9072976516',
     avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
     status: 'active',

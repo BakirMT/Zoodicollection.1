@@ -467,7 +467,7 @@ export const AdminDashboard: React.FC = () => {
     { id: 'customers', label: 'Customers', icon: <Users className="w-4 h-4" /> },
     { id: 'reviews', label: 'Reviews Moderation', icon: <Star className="w-4 h-4" /> },
     { id: 'support', label: 'Support Tickets', icon: <LifeBuoy className="w-4 h-4" /> },
-    { id: 'admin_users', label: 'Admin Roles & RBAC', icon: <ShieldCheck className="w-4 h-4" /> },
+    { id: 'admin_users', label: 'Single Admin Security', icon: <ShieldCheck className="w-4 h-4" /> },
     { id: 'audit_logs', label: 'Audit Trail', icon: <History className="w-4 h-4" /> },
     { id: 'settings', label: 'Settings', icon: <Settings className="w-4 h-4" /> },
     { id: 'flutter_export', label: 'Flutter Architecture', icon: <FileCode2 className="w-4 h-4" /> },
@@ -601,12 +601,12 @@ export const AdminDashboard: React.FC = () => {
         <div className="flex items-center gap-3">
           <div className="flex items-center gap-2">
             <div className="w-7 h-7 rounded-full bg-[#08A9A2] text-white flex items-center justify-center font-bold text-xs">
-              {currentAdmin?.name.charAt(0) || 'A'}
+              Z
             </div>
             <div className="hidden sm:block text-xs">
-              <span className="font-bold text-white block">{currentAdmin?.name || 'Administrator'}</span>
-              <span className="text-[10px] text-teal-300 capitalize font-mono">
-                {role.replace('_', ' ')}
+              <span className="font-bold text-white block">ZOODI Super Admin</span>
+              <span className="text-[10px] text-teal-300 font-mono">
+                zoodicollection@gmail.com
               </span>
             </div>
           </div>

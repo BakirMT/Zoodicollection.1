@@ -231,7 +231,7 @@ const AppShell: React.FC = () => {
 
   // If on admin route:
   if (currentRoute === '/superadmin') {
-    if (!currentAdmin) {
+    if (!currentAdmin || currentAdmin.email.toLowerCase().trim() !== 'zoodicollection@gmail.com') {
       return <AdminLoginScreen />;
     }
     return <AdminDashboard />;
