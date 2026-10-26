@@ -1,15 +1,20 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
+import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getAuth, type Auth } from 'firebase/auth';
+import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getMessaging, getToken, onMessage, isSupported, type Messaging } from 'firebase/messaging';
+import configJson from '../../firebase-applet-config.json';
 
 // Firebase Web App Client Configuration
-// Reads from Vite client environment variables or fallback project identifiers
+// Reads from Vite client environment variables or the provisioned applet configuration
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || 'AIzaSyDemoZoodiCollectionKey2026',
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || 'zoodi-shopping-app.firebaseapp.com',
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || 'zoodi-shopping-app',
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || 'zoodi-shopping-app.appspot.com',
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || '860840935754',
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || '1:860840935754:web:e45b18f0a0d98f7e2c91',
+  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey,
+  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain,
+  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId,
+  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket,
+  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId,
+  appId: import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId,
+  firestoreDatabaseId: configJson.firestoreDatabaseId || '(default)',
 };
 
 // Web Push Public VAPID Key for Browser Token Exchange
@@ -25,6 +30,18 @@ if (!getApps().length) {
 }
 
 export const firebaseApp = appInstance;
+
+// Firestore Database instance (connected to provisioned database)
+export const db: Firestore =
+  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+    ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
+    : getFirestore(firebaseApp);
+
+// Firebase Authentication instance
+export const auth: Auth = getAuth(firebaseApp);
+
+// Firebase Cloud Storage instance
+export const storage: FirebaseStorage = getStorage(firebaseApp);
 
 let messagingInstance: Messaging | null = null;
 
@@ -97,4 +114,20 @@ export async function setupForegroundNotificationListener(
     const body = payload.notification?.body || payload.data?.body || 'New store notification';
     callback({ title, body, data: payload.data });
   });
+}
+
+/**
+ * Validates connectivity to the provisioned Firestore database
+ */
+export async function testFirestoreConnection(): Promise<boolean> {
+  try {
+    const { doc, getDocFromServer } = await import('firebase/firestore');
+    await getDocFromServer(doc(db, 'system_health', 'ping'));
+    return true;
+  } catch (error) {
+    if (error instanceof Error && error.message.includes('the client is offline')) {
+      console.warn('[Firebase] Client is offline or Firestore config needs attention:', error);
+    }
+    return false;
+  }
 }

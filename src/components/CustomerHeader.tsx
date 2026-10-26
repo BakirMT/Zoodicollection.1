@@ -4,7 +4,6 @@ import { ZoodiLogo } from './ZoodiLogo';
 import {
   Search,
   Heart,
-  ShoppingBag,
   Bell,
   ShieldCheck,
   Sparkles,
@@ -14,7 +13,6 @@ import {
 export const CustomerHeader: React.FC = () => {
   const {
     navigateTo,
-    cart,
     wishlistIds,
     unreadCustomerCount,
     setIsNotificationCenterOpen,
@@ -27,10 +25,8 @@ export const CustomerHeader: React.FC = () => {
     customerProfile,
     isCustomerLoggedIn,
     currentAdmin,
+    deviceFrameMode,
   } = useApp();
-
-  const totalCartCount = cart.reduce((sum, item) => sum + item.quantity, 0);
-  const cartSubtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
 
   // Hidden admin access: 3 quick taps on the brand logo
   const logoTapCountRef = useRef(0);
@@ -66,9 +62,10 @@ export const CustomerHeader: React.FC = () => {
   };
 
   return (
-    <header className="sticky top-0 z-30 flex flex-col w-full bg-white shadow-xs">
-      {/* MAIN HEADER BAR */}
-      <div className="bg-white/95 backdrop-blur-md px-3 sm:px-4 py-2.5 flex items-center justify-between gap-3 border-b border-[#E6EAF0]">
+    <header className="fixed top-0 left-0 right-0 z-40 flex flex-col w-full bg-white/95 backdrop-blur-md shadow-xs border-b border-[#E6EAF0]">
+      <div className={`w-full mx-auto transition-all ${deviceFrameMode === 'responsive' ? 'max-w-6xl' : 'max-w-md'}`}>
+        {/* MAIN HEADER BAR */}
+        <div className="px-3 sm:px-4 py-2.5 flex items-center justify-between gap-3 border-b border-[#E6EAF0]">
         {/* Brand Logo & Kerala Heritage tag */}
         <div className="flex items-center gap-2 shrink-0">
           <button
@@ -136,31 +133,7 @@ export const CustomerHeader: React.FC = () => {
             </div>
           </button>
 
-          {/* Cart / Bag Shortcut */}
-          <button
-            type="button"
-            aria-label={`Shopping Bag, ${totalCartCount} items`}
-            onClick={() => {
-              setCustomerTab('cart');
-              setActiveScreen('tab');
-            }}
-            className="relative flex items-center gap-2 h-10 px-2 sm:px-3 rounded-xl text-[#192E4D] hover:bg-[#F6F8FA] active:bg-[#E6EAF0] border border-transparent hover:border-[#E6EAF0] transition-all focus-visible:ring-2 focus-visible:ring-[#08A9A2] focus:outline-hidden group"
-            title="Shopping Bag"
-          >
-            <div className="relative">
-              <ShoppingBag className="w-5 h-5 group-hover:text-[#08A9A2] transition-colors" />
-              {totalCartCount > 0 && (
-                <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[#08A9A2] text-white text-[10px] font-black flex items-center justify-center shadow-xs">
-                  {totalCartCount}
-                </span>
-              )}
-            </div>
-            {totalCartCount > 0 && (
-              <span className="hidden sm:inline-block font-extrabold text-xs text-[#192E4D] tabular-nums">
-                ₹{Math.round(cartSubtotal).toLocaleString('en-IN')}
-              </span>
-            )}
-          </button>
+
 
           {/* Quick Admin Portal Button */}
           <button
@@ -205,49 +178,52 @@ export const CustomerHeader: React.FC = () => {
         </div>
       </div>
 
-      {/* HORIZONTAL CATEGORY NAVIGATION BAR */}
-      <nav
-        aria-label="Category Quick Navigation"
-        className="bg-white border-b border-[#F0F4F8] px-2 sm:px-4 py-1.5 flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth"
-      >
-        {/* All / Home tab - Hidden on Explore page */}
-        {customerTab !== 'categories' && (
-          <button
-            type="button"
-            onClick={() => handleCategoryClick(null)}
-            className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-              customerTab === 'home' && selectedCategorySlug === null
-                ? 'bg-[#08A9A2] text-white shadow-xs'
-                : 'text-[#697586] hover:text-[#192E4D] hover:bg-[#F6F8FA]'
-            }`}
-          >
-            <Sparkles className="w-3.5 h-3.5 shrink-0" />
-            <span>All Drops</span>
-          </button>
-        )}
+      {/* HORIZONTAL CATEGORY NAVIGATION BAR (Hidden on Wishlist, Bag, and Account pages) */}
+      {customerTab !== 'wishlist' && customerTab !== 'cart' && customerTab !== 'account' && (
+        <nav
+          aria-label="Category Quick Navigation"
+          className="bg-white border-b border-[#F0F4F8] px-2 sm:px-4 py-1.5 flex items-center gap-1 sm:gap-2 overflow-x-auto no-scrollbar scroll-smooth"
+        >
+          {/* All / Home tab - Hidden on Explore page */}
+          {customerTab !== 'categories' && (
+            <button
+              type="button"
+              onClick={() => handleCategoryClick(null)}
+              className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                customerTab === 'home' && selectedCategorySlug === null
+                  ? 'bg-[#08A9A2] text-white shadow-xs'
+                  : 'text-[#697586] hover:text-[#192E4D] hover:bg-[#F6F8FA]'
+              }`}
+            >
+              <Sparkles className="w-3.5 h-3.5 shrink-0" />
+              <span>All Drops</span>
+            </button>
+          )}
 
-        {/* Dynamic Main Categories */}
-        {mainCategories
-          .filter((c) => c.isActive)
-          .map((cat) => {
-            const isCatActive =
-              customerTab === 'categories' && selectedCategorySlug === cat.id;
-            return (
-              <button
-                key={cat.id}
-                type="button"
-                onClick={() => handleCategoryClick(cat.id)}
-                className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
-                  isCatActive
-                    ? 'bg-[#08A9A2] text-white shadow-xs'
-                    : 'text-[#697586] hover:text-[#192E4D] hover:bg-[#F6F8FA]'
-                }`}
-              >
-                <span>{cat.name}</span>
-              </button>
-            );
-          })}
-      </nav>
+          {/* Dynamic Main Categories */}
+          {mainCategories
+            .filter((c) => c.isActive)
+            .map((cat) => {
+              const isCatActive =
+                customerTab === 'categories' && selectedCategorySlug === cat.id;
+              return (
+                <button
+                  key={cat.id}
+                  type="button"
+                  onClick={() => handleCategoryClick(cat.id)}
+                  className={`shrink-0 px-3 py-1.5 rounded-lg text-xs font-bold transition-all flex items-center gap-1.5 cursor-pointer ${
+                    isCatActive
+                      ? 'bg-[#08A9A2] text-white shadow-xs'
+                      : 'text-[#697586] hover:text-[#192E4D] hover:bg-[#F6F8FA]'
+                  }`}
+                >
+                  <span>{cat.name}</span>
+                </button>
+              );
+            })}
+        </nav>
+      )}
+      </div>
     </header>
   );
 };

@@ -231,7 +231,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   // Device & Connectivity Simulators
   const [isOnline, setIsOnline] = useState<boolean>(true);
-  const [deviceFrameMode, setDeviceFrameMode] = useState<'phone' | 'responsive'>('phone');
+  const [deviceFrameMode, setDeviceFrameMode] = useState<'phone' | 'responsive'>('responsive');
 
   // Stored state with local persistence and INR version migration
   const [products, setProducts] = useState<Product[]>(() => {

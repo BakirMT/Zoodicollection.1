@@ -2,7 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
 import { CategoryIcon } from '../../components/CategoryIcon';
-import { ChevronRight, Tag, Percent, Sparkles, Check, Copy } from 'lucide-react';
+import { ChevronRight } from 'lucide-react';
 
 export const CategoriesScreen: React.FC = () => {
   const {
@@ -11,26 +11,18 @@ export const CategoriesScreen: React.FC = () => {
     subSubCategories,
     products,
     selectedCategorySlug,
-    coupons,
-    activeCoupon,
-    applyCouponCode,
-    setIsCouponsModalOpen,
   } = useApp();
-
-  const [copiedCoupon, setCopiedCoupon] = useState<string | null>(null);
 
   // Active Main Category ID (default to selectedCategorySlug or first category)
   const [activeMainId, setActiveMainId] = useState<string>(
-    selectedCategorySlug || mainCategories[0]?.id || 'cat_fashion'
+    selectedCategorySlug && selectedCategorySlug !== 'coupons_deals' && mainCategories.some((c) => c.id === selectedCategorySlug)
+      ? selectedCategorySlug
+      : mainCategories[0]?.id || 'cat_fashion'
   );
 
   // Sync activeMainId if user clicked a category on Home or Search
   useEffect(() => {
-    if (selectedCategorySlug === 'coupons_deals') {
-      setActiveMainId('coupons_deals');
-      setActiveSubId(null);
-      setActiveSubSubId(null);
-    } else if (selectedCategorySlug && mainCategories.some((c) => c.id === selectedCategorySlug)) {
+    if (selectedCategorySlug && selectedCategorySlug !== 'coupons_deals' && mainCategories.some((c) => c.id === selectedCategorySlug)) {
       setActiveMainId(selectedCategorySlug);
       setActiveSubId(null);
       setActiveSubSubId(null);
@@ -48,13 +40,8 @@ export const CategoriesScreen: React.FC = () => {
   const [inStockOnly, setInStockOnly] = useState(false);
 
   // Current hierarchy items
-  const activeMain =
-    activeMainId === 'coupons_deals'
-      ? { id: 'coupons_deals', name: 'Coupons & Deals', iconName: 'Tag' }
-      : mainCategories.find((c) => c.id === activeMainId);
-  const relevantSubs = activeMainId === 'coupons_deals'
-    ? []
-    : subCategories.filter((s) => s.mainCategoryId === activeMainId && s.isActive);
+  const activeMain = mainCategories.find((c) => c.id === activeMainId) || mainCategories[0];
+  const relevantSubs = subCategories.filter((s) => s.mainCategoryId === activeMainId && s.isActive);
   const activeSub = subCategories.find((s) => s.id === activeSubId);
   const relevantSubSubs = activeSubId
     ? subSubCategories.filter((ss) => ss.subCategoryId === activeSubId && ss.isActive)
@@ -63,9 +50,6 @@ export const CategoriesScreen: React.FC = () => {
 
   // Filter products matching category level
   let filteredProducts = products.filter((p) => {
-    if (activeMainId === 'coupons_deals') {
-      return p.salePrice && p.salePrice < p.price;
-    }
     if (activeSubSubId) return p.subSubCategoryId === activeSubSubId;
     if (activeSubId) return p.subCategoryId === activeSubId;
     return p.mainCategoryId === activeMainId;
@@ -123,25 +107,6 @@ export const CategoriesScreen: React.FC = () => {
 
       {/* LEVEL 1: MAIN CATEGORY HORIZONTAL TABS (min 44px tap target) */}
       <div className="px-4 py-3 border-b border-[#E6EAF0] flex items-center gap-2 overflow-x-auto no-scrollbar">
-        {/* Coupons & Deals Pill Option (Matching Screenshot Design) */}
-        <button
-          type="button"
-          onClick={() => {
-            setActiveMainId('coupons_deals');
-            setActiveSubId(null);
-            setActiveSubSubId(null);
-          }}
-          className={`min-h-[44px] px-3.5 py-2 rounded-full text-xs font-bold shrink-0 transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer shadow-2xs ${
-            activeMainId === 'coupons_deals'
-              ? 'border-2 border-[#F59E0B] bg-[#FFFBEB] text-[#B45309] shadow-xs ring-2 ring-[#F59E0B]/20'
-              : 'border-[1.5px] border-[#FCD34D] bg-white text-[#BA4A00] hover:bg-[#FFFDF5]'
-          }`}
-          title="Exclusive Coupons & Deals"
-        >
-          <Tag className="w-4 h-4 text-[#BA4A00] stroke-[2.2] shrink-0" />
-          <span>Coupons & Deals</span>
-        </button>
-
         {mainCategories
           .filter((c) => c.isActive)
           .map((cat) => {
@@ -155,7 +120,7 @@ export const CategoriesScreen: React.FC = () => {
                   setActiveSubId(null);
                   setActiveSubSubId(null);
                 }}
-                className={`min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 flex items-center gap-1.5 ${
+                className={`min-h-[44px] px-4 py-2.5 rounded-xl text-xs font-bold shrink-0 transition-all active:scale-95 flex items-center gap-1.5 cursor-pointer ${
                   isSelected
                     ? 'bg-[#08A9A2] text-white shadow-xs'
                     : 'bg-[#F6F8FA] text-[#697586] hover:bg-[#E6EAF0]'
@@ -167,66 +132,6 @@ export const CategoriesScreen: React.FC = () => {
             );
           })}
       </div>
-
-      {/* SPECIAL COUPONS & DEALS PROMO STRIP (When Coupons & Deals category is active) */}
-      {activeMainId === 'coupons_deals' && (
-        <div className="px-4 py-3 bg-[#FFFDF7] border-b border-[#FCD34D]/50 space-y-2.5">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-1.5">
-              <Sparkles className="w-4 h-4 text-[#BA4A00]" />
-              <h3 className="text-xs font-extrabold text-[#192E4D]">Active Store Discount Coupons</h3>
-            </div>
-            <button
-              type="button"
-              onClick={() => setIsCouponsModalOpen(true)}
-              className="text-xs font-bold text-[#BA4A00] hover:underline cursor-pointer"
-            >
-              View All Vouchers →
-            </button>
-          </div>
-
-          <div className="flex gap-2.5 overflow-x-auto no-scrollbar py-1">
-            {coupons.filter((c) => c.isActive !== false).map((c) => {
-              const isApplied = activeCoupon?.code === c.code;
-              return (
-                <div
-                  key={c.code}
-                  className={`p-2.5 rounded-xl border flex items-center gap-2.5 shrink-0 transition-all ${
-                    isApplied
-                      ? 'bg-emerald-50 border-emerald-300'
-                      : 'bg-white border-[#FCD34D]/70 shadow-2xs'
-                  }`}
-                >
-                  <div>
-                    <div className="flex items-center gap-1.5">
-                      <span className="font-mono font-black text-xs text-[#BA4A00] bg-amber-50 px-1.5 py-0.5 rounded border border-[#FCD34D]">
-                        {c.code}
-                      </span>
-                      <span className="text-[11px] font-bold text-emerald-700">
-                        {c.discountFixed ? `₹${c.discountFixed} OFF` : `${c.discountPercentage}% OFF`}
-                      </span>
-                    </div>
-                    <p className="text-[10px] text-slate-500 mt-0.5 truncate max-w-[160px]">
-                      {c.description}
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={() => applyCouponCode(c.code)}
-                    className={`h-7 px-2.5 rounded-lg text-[10px] font-bold transition-all cursor-pointer ${
-                      isApplied
-                        ? 'bg-emerald-600 text-white cursor-default'
-                        : 'bg-[#BA4A00] hover:bg-[#a03e00] text-white active:scale-95'
-                    }`}
-                  >
-                    {isApplied ? 'Applied ✓' : 'Apply'}
-                  </button>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-      )}
 
       {/* LEVEL 2 & 3: SUBCATEGORY & SUB-SUBCATEGORY PILLS */}
       {relevantSubs.length > 0 && (

@@ -18,6 +18,10 @@ import {
   UserCheck,
   LogIn,
   Sparkles,
+  Tag,
+  Copy,
+  Check,
+  Percent,
 } from 'lucide-react';
 
 export const AccountScreen: React.FC = () => {
@@ -35,10 +39,15 @@ export const AccountScreen: React.FC = () => {
     isCustomerLoggedIn,
     customerLogout,
     customerLogin,
+    coupons,
+    activeCoupon,
+    applyCouponCode,
+    removeCoupon,
+    setIsCouponsModalOpen,
   } = useApp();
 
   const [activeSubView, setActiveSubView] = useState<
-    'main' | 'orders' | 'support' | 'policies' | 'settings'
+    'main' | 'orders' | 'support' | 'policies' | 'settings' | 'coupons'
   >('main');
 
   const [supportSubject, setSupportSubject] = useState('');
@@ -50,6 +59,26 @@ export const AccountScreen: React.FC = () => {
   const [deleteSuccess, setDeleteSuccess] = useState<string | null>(null);
   const [showLogoutModal, setShowLogoutModal] = useState(false);
   const [logoutSuccess, setLogoutSuccess] = useState<string | null>(null);
+  const [copiedCoupon, setCopiedCoupon] = useState<string | null>(null);
+  const [couponToast, setCouponToast] = useState<string | null>(null);
+
+  const handleCopyCoupon = (code: string) => {
+    navigator.clipboard.writeText(code);
+    setCopiedCoupon(code);
+    setCouponToast(`Copied code "${code}" to clipboard!`);
+    setTimeout(() => {
+      setCopiedCoupon(null);
+      setCouponToast(null);
+    }, 2500);
+  };
+
+  const handleApplyCoupon = (code: string) => {
+    const success = applyCouponCode(code);
+    if (success) {
+      setCouponToast(`Coupon "${code}" applied to your bag!`);
+      setTimeout(() => setCouponToast(null), 3000);
+    }
+  };
 
   const handleCreateTicket = (e: React.FormEvent) => {
     e.preventDefault();
@@ -61,6 +90,192 @@ export const AccountScreen: React.FC = () => {
     setTicketFeedback('Support ticket created successfully! Our customer support team will reply shortly.');
     setTimeout(() => setTicketFeedback(null), 4000);
   };
+
+  // SUBVIEW: COUPONS & PROMOTIONAL DEALS
+  if (activeSubView === 'coupons') {
+    const activeCouponsList = coupons.filter((c) => c.isActive !== false);
+
+    return (
+      <div className="flex flex-col min-h-screen bg-[#F6F8FA] pb-28 text-left">
+        {/* Sticky Header */}
+        <div className="bg-white border-b border-[#E6EAF0] px-4 py-2 flex items-center justify-between min-h-[56px] sticky top-0 z-10">
+          <div className="flex items-center gap-2">
+            <button
+              type="button"
+              onClick={() => setActiveSubView('main')}
+              className="w-11 h-11 rounded-full bg-[#F6F8FA] hover:bg-[#E6EAF0] active:scale-95 flex items-center justify-center text-[#192E4D] transition-all cursor-pointer"
+              aria-label="Back to Account"
+            >
+              <ChevronLeft className="w-5 h-5" />
+            </button>
+            <div>
+              <h1 className="text-sm font-extrabold text-[#192E4D]">Coupons & Deals</h1>
+              <p className="text-[10px] text-[#697586]">Profile Settings & Vouchers</p>
+            </div>
+          </div>
+          <button
+            type="button"
+            onClick={() => setIsCouponsModalOpen(true)}
+            className="text-[11px] font-extrabold text-[#08A9A2] hover:underline flex items-center gap-1 cursor-pointer"
+          >
+            <Sparkles className="w-3.5 h-3.5" />
+            <span>Explore All</span>
+          </button>
+        </div>
+
+        {/* Toast Feedback */}
+        {couponToast && (
+          <div className="mx-4 mt-3 p-3 bg-emerald-50 border border-emerald-200 text-emerald-800 rounded-xl text-xs flex items-center gap-2 shadow-xs animate-in fade-in duration-200">
+            <Check className="w-4 h-4 text-emerald-600 shrink-0" />
+            <span className="font-semibold">{couponToast}</span>
+          </div>
+        )}
+
+        <div className="p-4 space-y-4">
+          {/* Top Promotional Card */}
+          <div className="p-4 rounded-2xl bg-gradient-to-r from-amber-50 via-orange-50 to-amber-50/50 border border-amber-200/80 shadow-2xs space-y-2.5">
+            <div className="flex items-start gap-3">
+              <div className="w-9 h-9 rounded-xl bg-amber-100 text-amber-700 flex items-center justify-center shrink-0">
+                <Tag className="w-5 h-5" />
+              </div>
+              <div className="flex-1">
+                <h3 className="font-extrabold text-sm text-[#192E4D]">ZOODI Member Offers</h3>
+                <p className="text-xs text-[#697586] leading-relaxed">
+                  Apply discounts directly to your shopping bag or copy coupon codes to checkout anytime.
+                </p>
+              </div>
+            </div>
+            {activeCoupon && (
+              <div className="p-2.5 bg-white/80 rounded-xl border border-amber-300 flex items-center justify-between text-xs">
+                <div>
+                  <span className="text-[10px] font-bold text-amber-800 uppercase tracking-wider block">
+                    Currently Applied to Cart:
+                  </span>
+                  <span className="font-mono font-black text-[#192E4D]">{activeCoupon.code}</span>
+                  <span className="text-[#697586] text-[11px] ml-2">
+                    ({activeCoupon.discountPercentage ? `${activeCoupon.discountPercentage}% OFF` : `₹${activeCoupon.discountFixed} OFF`})
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => {
+                    removeCoupon();
+                    setCouponToast('Coupon removed from cart.');
+                    setTimeout(() => setCouponToast(null), 2500);
+                  }}
+                  className="text-[11px] text-rose-600 font-bold hover:underline cursor-pointer"
+                >
+                  Remove
+                </button>
+              </div>
+            )}
+          </div>
+
+          {/* Vouchers List */}
+          <div className="space-y-3">
+            <h2 className="text-xs font-black uppercase tracking-wider text-[#697586]">
+              Available Coupons ({activeCouponsList.length})
+            </h2>
+
+            {activeCouponsList.length === 0 ? (
+              <div className="p-6 text-center bg-white rounded-2xl border border-[#E6EAF0]">
+                <Tag className="w-8 h-8 text-slate-300 mx-auto mb-2" />
+                <p className="text-xs font-bold text-[#192E4D]">No active coupons available right now.</p>
+                <p className="text-[11px] text-[#697586]">Check back during seasonal sales & promotions!</p>
+              </div>
+            ) : (
+              activeCouponsList.map((cpn) => {
+                const isApplied = activeCoupon?.code === cpn.code;
+                const isCopied = copiedCoupon === cpn.code;
+
+                return (
+                  <div
+                    key={cpn.code}
+                    className={`p-4 rounded-2xl bg-white border transition-all shadow-2xs space-y-3 ${
+                      isApplied ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/20' : 'border-[#E6EAF0] hover:border-amber-300'
+                    }`}
+                  >
+                    <div className="flex items-start justify-between gap-3">
+                      <div className="space-y-1">
+                        <div className="flex items-center gap-2">
+                          <span className="px-2.5 py-1 rounded-lg bg-[#FAF0E6] text-[#B45309] font-mono font-black text-xs tracking-wider border border-[#FDE68A]">
+                            {cpn.code}
+                          </span>
+                          {isApplied && (
+                            <span className="px-2 py-0.5 rounded-full text-[10px] font-extrabold bg-[#08A9A2]/10 text-[#08A9A2]">
+                              Applied
+                            </span>
+                          )}
+                        </div>
+                        <p className="text-xs font-bold text-[#192E4D]">{cpn.description}</p>
+                      </div>
+
+                      <div className="text-right shrink-0">
+                        <span className="text-sm font-black text-[#08A9A2]">
+                          {cpn.discountPercentage ? `${cpn.discountPercentage}% OFF` : `₹${cpn.discountFixed} OFF`}
+                        </span>
+                        {cpn.maxDiscount && (
+                          <span className="text-[10px] text-[#697586] block">Up to ₹{cpn.maxDiscount}</span>
+                        )}
+                      </div>
+                    </div>
+
+                    <div className="flex items-center justify-between pt-2 border-t border-[#F0F4F8] text-[11px] text-[#697586]">
+                      <span>Min. Order: ₹{cpn.minOrder}</span>
+                      <span>Expires: {new Date(cpn.expiresAt).toLocaleDateString()}</span>
+                    </div>
+
+                    <div className="grid grid-cols-2 gap-2 pt-1">
+                      <button
+                        type="button"
+                        onClick={() => handleCopyCoupon(cpn.code)}
+                        className="h-9 px-3 rounded-xl border border-[#E6EAF0] hover:bg-[#F6F8FA] active:scale-95 text-xs font-bold text-[#192E4D] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                      >
+                        {isCopied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5 text-emerald-600" />
+                            <span className="text-emerald-700">Copied!</span>
+                          </>
+                        ) : (
+                          <>
+                            <Copy className="w-3.5 h-3.5 text-[#697586]" />
+                            <span>Copy Code</span>
+                          </>
+                        )}
+                      </button>
+
+                      <button
+                        type="button"
+                        onClick={() => handleApplyCoupon(cpn.code)}
+                        disabled={isApplied}
+                        className={`h-9 px-3 rounded-xl text-xs font-extrabold flex items-center justify-center gap-1.5 transition-all cursor-pointer ${
+                          isApplied
+                            ? 'bg-[#08A9A2]/10 text-[#08A9A2] cursor-default'
+                            : 'bg-[#08A9A2] hover:bg-[#079690] active:scale-95 text-white shadow-2xs'
+                        }`}
+                      >
+                        {isApplied ? (
+                          <>
+                            <Check className="w-3.5 h-3.5" />
+                            <span>In Cart</span>
+                          </>
+                        ) : (
+                          <>
+                            <Tag className="w-3.5 h-3.5" />
+                            <span>Apply to Bag</span>
+                          </>
+                        )}
+                      </button>
+                    </div>
+                  </div>
+                );
+              })
+            )}
+          </div>
+        </div>
+      </div>
+    );
+  }
 
   // SUBVIEW: ORDER HISTORY
   if (activeSubView === 'orders') {
@@ -404,6 +619,108 @@ export const AccountScreen: React.FC = () => {
             </div>
           </div>
 
+          {/* Coupons & Deals in Profile Settings */}
+          <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6EAF0] space-y-3 shadow-2xs">
+            <div className="flex items-center justify-between border-b border-[#F0F4F8] pb-2.5">
+              <div className="flex items-center gap-2">
+                <div className="w-7 h-7 rounded-lg bg-amber-50 text-amber-600 flex items-center justify-center">
+                  <Tag className="w-4 h-4" />
+                </div>
+                <div>
+                  <h3 className="font-extrabold text-sm text-[#192E4D]">Coupons & Deals</h3>
+                  <p className="text-[10px] text-[#697586]">Member discounts & checkout vouchers</p>
+                </div>
+              </div>
+              <button
+                type="button"
+                onClick={() => setActiveSubView('coupons')}
+                className="text-[11px] font-extrabold text-[#08A9A2] hover:underline flex items-center gap-0.5 cursor-pointer"
+              >
+                <span>View All ({coupons.filter((c) => c.isActive !== false).length})</span>
+                <ChevronRight className="w-3.5 h-3.5" />
+              </button>
+            </div>
+
+            {/* Quick list of coupons */}
+            <div className="space-y-2">
+              {coupons
+                .filter((c) => c.isActive !== false)
+                .slice(0, 3)
+                .map((cpn) => {
+                  const isApplied = activeCoupon?.code === cpn.code;
+                  const isCopied = copiedCoupon === cpn.code;
+
+                  return (
+                    <div
+                      key={cpn.code}
+                      className="p-2.5 rounded-xl bg-[#F6F8FA] border border-[#E6EAF0] flex items-center justify-between gap-2"
+                    >
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-2">
+                          <span className="font-mono font-black text-xs text-[#B45309] bg-white px-2 py-0.5 rounded border border-amber-200">
+                            {cpn.code}
+                          </span>
+                          <span className="text-[11px] font-bold text-[#08A9A2]">
+                            {cpn.discountPercentage ? `${cpn.discountPercentage}% OFF` : `₹${cpn.discountFixed} OFF`}
+                          </span>
+                        </div>
+                        <p className="text-[10px] text-[#697586] truncate mt-0.5">
+                          Min spend ₹{cpn.minOrder} • {cpn.description}
+                        </p>
+                      </div>
+
+                      <div className="flex items-center gap-1.5 shrink-0">
+                        <button
+                          type="button"
+                          onClick={() => handleCopyCoupon(cpn.code)}
+                          className="px-2 py-1 rounded-lg bg-white border border-[#E6EAF0] text-[10px] font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-1 cursor-pointer"
+                          title="Copy code"
+                        >
+                          {isCopied ? (
+                            <Check className="w-3 h-3 text-emerald-600" />
+                          ) : (
+                            <Copy className="w-3 h-3 text-[#697586]" />
+                          )}
+                          <span>{isCopied ? 'Copied' : 'Copy'}</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleApplyCoupon(cpn.code)}
+                          disabled={isApplied}
+                          className={`px-2 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer ${
+                            isApplied
+                              ? 'bg-[#08A9A2]/10 text-[#08A9A2]'
+                              : 'bg-[#08A9A2] text-white hover:bg-[#079690]'
+                          }`}
+                        >
+                          {isApplied ? 'In Cart' : 'Apply'}
+                        </button>
+                      </div>
+                    </div>
+                  );
+                })}
+            </div>
+
+            <div className="pt-1 flex gap-2">
+              <button
+                type="button"
+                onClick={() => setActiveSubView('coupons')}
+                className="flex-1 h-9 rounded-xl border border-amber-300 bg-amber-50/60 hover:bg-amber-100/60 text-amber-900 font-extrabold text-[11px] flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+              >
+                <Tag className="w-3.5 h-3.5 text-amber-700" />
+                <span>All Vouchers & Codes</span>
+              </button>
+              <button
+                type="button"
+                onClick={() => setIsCouponsModalOpen(true)}
+                className="h-9 px-3 rounded-xl bg-slate-100 hover:bg-slate-200 text-[#192E4D] font-bold text-[11px] flex items-center justify-center gap-1 transition-all cursor-pointer"
+              >
+                <Sparkles className="w-3.5 h-3.5 text-[#08A9A2]" />
+                <span>Deals Modal</span>
+              </button>
+            </div>
+          </div>
+
           {/* Notification Preferences */}
           <div className="p-4 sm:p-5 rounded-2xl bg-white border border-[#E6EAF0] space-y-3 shadow-2xs">
             <div className="flex items-center gap-2 border-b border-[#F0F4F8] pb-2.5">
@@ -562,6 +879,29 @@ export const AccountScreen: React.FC = () => {
               <span className="font-bold text-[#192E4D]">Help & Support Tickets</span>
             </div>
             <ChevronRight className="w-4 h-4 text-[#697586]" />
+          </button>
+
+          {/* Coupons & Deals (Moved to Profile Settings) */}
+          <button
+            type="button"
+            onClick={() => setActiveSubView('coupons')}
+            className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between hover:bg-amber-50/40 active:bg-amber-100/40 transition-colors group cursor-pointer"
+          >
+            <div className="flex items-center gap-3">
+              <div className="w-6 h-6 rounded-lg bg-amber-100 text-amber-700 flex items-center justify-center group-hover:scale-110 transition-transform">
+                <Tag className="w-3.5 h-3.5" />
+              </div>
+              <div className="text-left">
+                <span className="font-extrabold text-[#192E4D] block">Coupons & Deals</span>
+                <span className="text-[10px] text-[#697586]">Member discounts & checkout vouchers</span>
+              </div>
+            </div>
+            <div className="flex items-center gap-1.5 text-amber-700">
+              <span className="text-[10px] font-extrabold uppercase bg-amber-100 px-2 py-0.5 rounded-md">
+                {coupons.filter((c) => c.isActive !== false).length} Active
+              </span>
+              <ChevronRight className="w-4 h-4 text-[#697586] group-hover:translate-x-0.5 transition-transform" />
+            </div>
           </button>
 
           {/* Settings & Preferences with prominent Logout button */}

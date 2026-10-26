@@ -40,6 +40,9 @@ const AppShell: React.FC = () => {
     setAdminModule,
     deviceFrameMode,
     setDeviceFrameMode,
+    isCouponsModalOpen,
+    isNotificationCenterOpen,
+    isNotifPreferencesOpen,
   } = useApp();
 
   // Flag to avoid pushState loops when syncing state from browser URL (popstate / initial load)
@@ -234,9 +237,9 @@ const AppShell: React.FC = () => {
     return <AdminDashboard />;
   }
 
-  // Customer Shopping Experience - Clean, Native-feel Mobile Container
+  // Customer Shopping Experience - Clean, Responsive Full-Store Container
   return (
-    <div className="min-h-screen bg-[#F0F4F8] flex flex-col items-center justify-start">
+    <div className="min-h-screen bg-white md:bg-[#F0F4F8] flex flex-col items-center justify-start w-full overflow-x-hidden">
       {/* OFFLINE WARNING BANNER (Only when simulated offline) */}
       {!isOnline && (
         <div className="w-full max-w-md mx-auto p-3 bg-rose-600 text-white shadow-md flex items-center justify-between text-xs animate-in slide-in-from-top sticky top-0 z-50">
@@ -260,58 +263,23 @@ const AppShell: React.FC = () => {
         </div>
       )}
 
-      {/* DESKTOP VIEWPORT CONTROLLER BAR (Visible on md+ screens) */}
-      <div className="hidden md:flex items-center justify-between w-full max-w-6xl px-4 py-2 mt-2 select-none text-xs">
-        <div className="flex items-center gap-2 text-slate-500 font-medium">
-          <span className="w-2 h-2 rounded-full bg-emerald-500 animate-pulse" />
-          <span>ZOODI Live Kerala Storefront</span>
-          <span className="text-slate-300">|</span>
-          <span className="text-slate-400">Mannarkkad, Palakkad · Kochi Hub</span>
-        </div>
-
-        <div className="flex items-center gap-1 bg-white p-1 rounded-xl border border-slate-200 shadow-2xs">
-          <button
-            type="button"
-            onClick={() => setDeviceFrameMode('phone')}
-            className={`px-3 py-1 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
-              deviceFrameMode === 'phone'
-                ? 'bg-[#192E4D] text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <span>📱 Mobile App</span>
-          </button>
-          <button
-            type="button"
-            onClick={() => setDeviceFrameMode('responsive')}
-            className={`px-3 py-1 rounded-lg font-bold text-xs transition-all flex items-center gap-1.5 cursor-pointer ${
-              deviceFrameMode === 'responsive'
-                ? 'bg-[#192E4D] text-white shadow-xs'
-                : 'text-slate-600 hover:text-slate-900'
-            }`}
-          >
-            <span>💻 Full-Width Store</span>
-          </button>
-        </div>
-      </div>
-
       {/* Main Application Container */}
       <div
-        className={`w-full bg-white min-h-screen transition-all duration-300 flex flex-col relative ${
+        className={`w-full bg-white min-h-screen transition-all duration-300 flex flex-col relative overflow-x-hidden ${
           deviceFrameMode === 'responsive'
-            ? 'max-w-6xl md:my-4 md:rounded-2xl md:border md:border-[#E6EAF0] md:shadow-xl'
-            : 'max-w-md md:my-4 md:rounded-3xl md:border-[10px] md:border-slate-800 md:shadow-2xl'
+            ? 'max-w-6xl md:rounded-2xl md:border md:border-[#E6EAF0] md:shadow-md'
+            : 'max-w-md md:rounded-3xl md:border-[8px] md:border-slate-800 md:shadow-2xl'
         }`}
       >
         {/* Search Modal Overlay */}
         {activeScreen === 'search' && <SearchModal />}
 
         {/* Coupons & Deals Modal Overlay */}
-        <CouponsAndDealsModal />
+        {isCouponsModalOpen && <CouponsAndDealsModal />}
 
         {/* Customer Push Notification Center & Preferences Modals */}
-        <NotificationCenterModal />
-        <CustomerNotificationPreferencesModal />
+        {isNotificationCenterOpen && <NotificationCenterModal />}
+        {isNotifPreferencesOpen && <CustomerNotificationPreferencesModal />}
 
         {/* Screen Routing */}
         {activeScreen === 'login' && <CustomerLoginScreen />}
@@ -324,7 +292,13 @@ const AppShell: React.FC = () => {
           <div className="flex flex-col min-h-screen">
             <CustomerHeader />
 
-            <main className="flex-1">
+            <main
+              className={`flex-1 pb-24 ${
+                customerTab === 'wishlist' || customerTab === 'cart' || customerTab === 'account'
+                  ? 'pt-[60px]'
+                  : 'pt-[96px]'
+              }`}
+            >
               {customerTab === 'home' && <HomeScreen />}
               {customerTab === 'categories' && <CategoriesScreen />}
               {customerTab === 'wishlist' && <WishlistScreen />}

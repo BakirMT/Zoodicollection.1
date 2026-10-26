@@ -1,0 +1,1445 @@
+# MASTER DEVELOPMENT PROMPT — ZOODI
+## Complete Production-Ready E-Commerce Website with Firebase Backend, Customer Storefront, and Role-Based Admin Dashboard
+
+### 1. PROJECT OBJECTIVE
+
+Build a complete, professional, production-oriented full-stack e-commerce website for **ZOODI**, an Indian fashion and lifestyle shopping brand.
+
+This is a NEW PROJECT. Build the entire application with a clean architecture, professional UI, secure authentication, a real Firebase backend, and fully connected customer and admin interfaces.
+
+This must NOT be a static demo, a UI-only prototype, or a collection of non-functional buttons.
+
+Every implemented feature must work with real application logic and persistent database storage.
+
+**Core requirement:** When an authorized administrator changes something in the admin panel, the corresponding changes must automatically appear on the customer website wherever applicable.
+
+Use Firebase as the primary backend.
+
+Do not simply create mock dashboards or fake functionality. Implement real operations and clearly distinguish demo seed data from actual customer activity.
+
+---
+
+# 2. TECHNOLOGY STACK
+
+Use the following technologies where supported by the existing development environment:
+
+- Frontend: React with TypeScript.
+- Build tool: Vite.
+- Styling: Tailwind CSS or an equivalent maintainable styling system.
+- Backend: Firebase.
+- Database: Cloud Firestore.
+- Authentication: Firebase Authentication.
+- Product image storage: Firebase Cloud Storage.
+- Real-time updates: Firestore listeners.
+- Hosting: Vercel or Firebase Hosting.
+- Form validation: Zod or an equivalent validation library.
+- Icons: Lucide React.
+- Notifications: Firebase Cloud Messaging where supported, with an appropriate service worker and server-side sending logic.
+
+Use modular Firebase SDK imports.
+
+Use secure Firebase configuration through environment variables.
+
+For Vite, create an `.env.example` containing:
+
+VITE_FIREBASE_API_KEY=
+VITE_FIREBASE_AUTH_DOMAIN=
+VITE_FIREBASE_PROJECT_ID=
+VITE_FIREBASE_STORAGE_BUCKET=
+VITE_FIREBASE_MESSAGING_SENDER_ID=
+VITE_FIREBASE_APP_ID=
+VITE_FIREBASE_VAPID_KEY=
+
+Never put Firebase Admin SDK credentials, private service-account keys, payment secrets, or privileged server credentials in frontend environment variables.
+
+Create server-side functions using Firebase Cloud Functions or an appropriate secure backend for privileged operations.
+
+Provide a clear README explaining configuration, deployment, Firebase setup, and required environment variables.
+
+---
+
+# 3. REAL FIREBASE BACKEND
+
+Connect every applicable feature to Firebase.
+
+Use Cloud Firestore for:
+
+- Products
+- Product categories
+- Product variants
+- Product images
+- Inventory
+- Warehouses
+- Customers
+- Customer addresses
+- Cart data
+- Wishlist data
+- Orders
+- Order items
+- Payments
+- Coupons
+- Reviews and ratings
+- Homepage sections
+- Homepage sliders
+- Promotional banners
+- Admin accounts
+- Admin roles and permissions
+- Notifications
+- Shipping and delivery settings
+- Website settings
+- Audit logs
+- Sales analytics data
+
+Use Firebase Authentication for account registration, login, logout, and account recovery.
+
+Use Firebase Storage for product images, colour-specific images, category images, sliders, and promotional banners.
+
+### Real-Time Synchronization
+
+Use Firestore real-time listeners where appropriate.
+
+Examples:
+
+1. An administrator adds a product.
+2. The product is saved to Firestore.
+3. The customer storefront receives the update automatically.
+4. The product appears in the correct category.
+5. Its images, price, variants, and stock status are displayed correctly.
+
+Similarly:
+
+- Editing a product updates its customer-facing details.
+- Changing a price updates product cards and product details.
+- Hiding a product removes it from public listings without deleting its historical order records.
+- Updating a category synchronizes the category navigation and relevant product listings.
+- Changing homepage sections updates the published homepage.
+- Updating inventory changes stock availability.
+- Updating an order changes its status across authorized interfaces.
+- Editing a customer's profile updates the saved profile.
+- Changing shipping settings updates checkout calculations.
+- Publishing a promotional banner makes it available on the customer homepage.
+
+Use server timestamps and appropriate loading, error, and success states.
+
+Do not rely on manually refreshing the website to synchronize normal changes.
+
+Do not use localStorage as the primary database.
+
+Local storage may be used for non-sensitive preferences or temporary cart experiences, but persistent business data must be stored in the backend.
+
+---
+
+# 4. AUTHENTICATION SYSTEM
+
+Implement working authentication using Firebase Authentication.
+
+Support:
+
+- Google sign-in.
+- Email and password registration.
+- Email and password login.
+- Email verification.
+- Password reset.
+- Logout.
+- Session persistence.
+- Account profile management.
+- Authentication error handling.
+- Protected routes.
+- Appropriate loading states during authentication.
+
+### Customer Authentication
+
+When a customer signs in with Google or email and password:
+
+1. Authenticate through Firebase.
+2. Create or retrieve the corresponding customer profile.
+3. Store the user's Firebase UID as the stable customer identifier.
+4. Load the customer's existing profile, addresses, wishlist, and other permitted account data.
+5. Display the correct customer account.
+6. Preserve account data across sessions.
+
+Never create duplicate customer records for the same Firebase UID.
+
+Never show another customer's personal information or orders.
+
+### Administrator Authentication
+
+Provide a separate administrator login interface.
+
+The admin dashboard must not be accessible to ordinary customers.
+
+The admin interface can use a dedicated route such as:
+
+`/superadmin`
+
+This route is not a substitute for authorization. Protect every administrator route and operation using server-verified permissions.
+
+Do not allow users to become administrators by changing a browser URL, editing local storage, or modifying frontend JavaScript.
+
+Do not assign admin privileges merely because someone registers with a particular email address.
+
+Create the initial Super Admin through a secure, documented provisioning process using Firebase Admin SDK or another trusted server-side mechanism.
+
+Only authorized administrators can access the management dashboard.
+
+---
+
+# 5. CUSTOMER-FACING SHOPPING WEBSITE
+
+Build a complete, responsive shopping website for desktop, tablet, and mobile.
+
+### Homepage
+
+Include:
+
+- Brand logo and navigation.
+- Search.
+- Product categories.
+- Promotional sliders.
+- Promotional banners.
+- Featured products.
+- Best sellers.
+- New arrivals.
+- Trending products.
+- Recommended products.
+- Flash sales where configured.
+- Recently viewed products.
+- Newsletter section if enabled.
+- Footer with relevant navigation and policies.
+
+All homepage sections must be configurable through the admin dashboard.
+
+Do not hardcode the order or visibility of homepage sections.
+
+### Product Categories
+
+Support categories such as:
+
+- Men's Fashion
+- Women's Fashion
+- Clothing
+- Shoes
+- Bags
+- Wallets
+- Belts
+- Perfumes
+- Accessories
+- Watches
+- Lifestyle Products
+
+Administrators must be able to add, edit, reorder, publish, and hide categories.
+
+These example categories are initial seed data only and must remain editable.
+
+### Product Listing
+
+Implement:
+
+- Product image.
+- Product name.
+- Selling price.
+- Original price.
+- Discount percentage.
+- Rating and review count.
+- Availability.
+- Wishlist action.
+- Quick view where appropriate.
+- Pagination or efficient incremental loading.
+
+Add functional filters for category, price, size, colour, rating, and availability where applicable.
+
+Implement sorting by price, popularity, newest arrivals, and rating where relevant.
+
+### Product Details
+
+Each product must have a complete detail page with:
+
+- Product name and description.
+- Product image gallery.
+- Product-specific images.
+- Colour selection.
+- Size selection where applicable.
+- Variant-specific prices if configured.
+- Variant-specific stock availability.
+- Quantity selector.
+- Add-to-cart action.
+- Buy-now action.
+- Wishlist action.
+- Product specifications.
+- Shipping information.
+- Customer reviews.
+- Related products.
+
+Selecting a colour must update the product images and available variants to match the selected colour.
+
+Selecting a size must update availability and the selected variant.
+
+Prevent customers from ordering unavailable or out-of-stock variants.
+
+### Shopping Cart
+
+Implement a real persistent cart associated with the authenticated customer.
+
+Include:
+
+- Product and variant details.
+- Selected colour.
+- Selected size.
+- Quantity updates.
+- Item removal.
+- Stock validation.
+- Price calculation.
+- Discount calculation.
+- Subtotal.
+- Shipping charges.
+- Applicable taxes.
+- Coupon application.
+- Final total.
+
+Revalidate prices and stock on the server before creating an order.
+
+Never trust totals submitted directly by the browser.
+
+### Checkout
+
+Implement:
+
+- Customer details.
+- Saved delivery addresses.
+- Add-address option.
+- Edit-address option.
+- Delete-address option.
+- Shipping method.
+- Order summary.
+- Coupon validation.
+- Payment method selection.
+- Order confirmation.
+
+Use an appropriate payment gateway for real payments. Do not simulate successful payments or expose payment secrets.
+
+Only mark a payment as successful after verifying the payment provider's response through a trusted server-side process or verified webhook.
+
+If a payment gateway is not configured, show a clear configuration message and do not claim the transaction succeeded.
+
+### Customer Account
+
+Create a complete account section containing:
+
+- Profile.
+- Personal information.
+- Email information.
+- Saved addresses.
+- My orders.
+- Order details.
+- Order tracking.
+- Wishlist.
+- Reviews.
+- Notification preferences.
+- Password and account security options.
+
+Customers must be able to edit their permitted profile fields and delivery addresses.
+
+Persist changes to Firebase and reflect them in the relevant account pages.
+
+Use Firebase Authentication for supported email changes and reauthentication requirements.
+
+Do not allow customers to edit their role, account UID, order totals, payment status, or administrator permissions.
+
+---
+
+# 6. COLOUR-BASED PRODUCT IMAGE MANAGEMENT
+
+This is a mandatory feature.
+
+Create a proper product variant model.
+
+Each product should support multiple colours and, where applicable, multiple sizes.
+
+Example product:
+
+Product: Premium Casual Shirt
+
+Colours:
+- Black
+- White
+- Red
+- Blue
+
+Sizes:
+- S
+- M
+- L
+- XL
+- XXL
+
+Each colour must support its own image gallery.
+
+Example:
+
+Black:
+- Black shirt front image.
+- Black shirt back image.
+- Black shirt side image.
+
+White:
+- White shirt front image.
+- White shirt back image.
+- White shirt side image.
+
+Red:
+- Red shirt front image.
+- Red shirt back image.
+- Red shirt side image.
+
+### Admin Product Editor
+
+Provide the following controls:
+
+1. Add colour.
+2. Enter colour name.
+3. Select a colour swatch.
+4. Upload multiple images for that colour.
+5. Preview uploaded images.
+6. Choose a primary image.
+7. Reorder images.
+8. Remove an image.
+9. Edit colour details.
+10. Add size variants.
+11. Set stock for each applicable variant.
+12. Set SKU and optional barcode.
+13. Set price and optional variant-specific pricing.
+14. Save and publish.
+
+Upload images to Firebase Storage and save their download URLs and metadata in Firestore.
+
+Validate file types and sizes.
+
+Use secure upload rules and restrict product editing to authorized staff.
+
+### Customer Behaviour
+
+When a customer selects Red, show only the red variant's image gallery.
+
+When the customer selects Black, switch to the black gallery.
+
+Update the selected variant, stock availability, SKU, and price where applicable.
+
+The selected colour and size must also be stored in the cart and order items.
+
+Do not treat all colour images as a single unstructured image array.
+
+---
+
+# 7. ADMIN DASHBOARD — REAL ANALYTICS
+
+Build a professional dashboard with accurate, database-driven information.
+
+Display:
+
+- Total sales.
+- Total revenue.
+- Total orders.
+- Active orders.
+- Average order value.
+- Total customers.
+- New customers.
+- Low-stock products.
+- Out-of-stock products.
+- Best-selling products.
+- Recent orders.
+- Sales charts.
+- Revenue trends.
+- Order-status breakdown.
+
+### Analytics Requirements
+
+Do not hardcode dashboard numbers.
+
+Do not generate random values to make the dashboard look active.
+
+Use actual Firestore records and trusted server-side aggregation where appropriate.
+
+Clearly define each metric.
+
+For example:
+
+- Total revenue: revenue from qualifying paid orders, adjusted according to the documented refund policy.
+- Active orders: orders that have not reached a terminal status.
+- Average order value: qualifying order revenue divided by the number of qualifying orders.
+- Low-stock products: applicable variants whose available stock is at or below the configured threshold.
+
+Provide date filters:
+
+- Today.
+- Last 7 days.
+- Last 30 days.
+- This month.
+- Custom date range.
+
+Ensure that demo seed orders are not mixed with genuine customer sales in production analytics.
+
+If no real orders exist, show zero values and a useful empty state.
+
+Provide a reliable way to refresh or recalculate analytics when relevant data changes.
+
+---
+
+# 8. ROLE-BASED ADMIN ACCESS CONTROL
+
+Implement a real permission system.
+
+Create these roles:
+
+### 1. SUPER ADMIN
+
+Full authorized control over the platform.
+
+Permissions:
+- Dashboard and analytics.
+- Product management.
+- Category management.
+- Inventory and warehouse management.
+- Order management.
+- Customer management.
+- Review management.
+- Marketing management.
+- Homepage builder.
+- Admin management.
+- Role and permission management.
+- Website settings.
+- Payment and shipping configuration.
+- Notification configuration.
+- Audit logs.
+
+Only the Super Admin can grant or revoke privileged roles.
+
+Prevent accidental removal of the last active Super Admin.
+
+### 2. PRODUCT LEADER
+
+Permissions:
+- View relevant product analytics.
+- Add products.
+- Edit products.
+- Upload product images.
+- Manage colours and sizes.
+- Manage categories if explicitly permitted.
+- Manage product publication status.
+- View product-related inventory.
+
+No access to unrelated customer financial data or role management unless explicitly granted.
+
+### 3. ORDER MANAGER
+
+Permissions:
+- View orders.
+- View order item details.
+- Verify permitted order information.
+- Update order status according to the workflow.
+- Manage packing and fulfilment.
+- Add tracking information.
+- Process permitted cancellation or refund workflows.
+
+Do not grant administrator-role management or unrestricted website settings access.
+
+### 4. MARKETING LEADER
+
+Permissions:
+- Manage promotional banners.
+- Manage homepage sliders.
+- Manage coupons and campaigns.
+- Manage permitted promotional homepage sections.
+- View authorized campaign analytics.
+
+Do not grant product, customer, or order modification permissions unless explicitly assigned.
+
+### 5. CUSTOMER MANAGER
+
+Permissions:
+- View customer records necessary for customer support.
+- View permitted order history.
+- Manage permitted support-related customer information.
+- Handle review moderation if separately authorized.
+
+Protect sensitive information and prevent unauthorized access to payment credentials or passwords.
+
+### Permission Enforcement
+
+Create a clear permission matrix.
+
+The Super Admin must be able to assign roles and, where supported, individual permissions.
+
+When an administrator logs in, show only the dashboard modules they are authorized to use.
+
+Hide unauthorized navigation items, but do not rely on hiding UI elements for security.
+
+Enforce permissions in:
+
+- Frontend routes.
+- Backend APIs or Cloud Functions.
+- Firestore Security Rules.
+- Storage Security Rules.
+
+Validate permissions on the server for privileged actions.
+
+An administrator must not gain permissions by editing a URL, browser storage, or request payload.
+
+Create an Admin Management page with:
+
+- Admin list.
+- Admin identity.
+- Assigned role.
+- Permission summary.
+- Account status.
+- Invitation or provisioning workflow.
+- Role update.
+- Access revocation.
+- Relevant audit history.
+
+Never permit an ordinary customer to self-assign an administrative role.
+
+---
+
+# 9. PRODUCT MANAGEMENT
+
+Implement a fully functional product management module.
+
+Features:
+
+- Create product.
+- Edit product.
+- Duplicate product.
+- Publish product.
+- Unpublish product.
+- Archive product.
+- Search products.
+- Filter products.
+- Bulk-select products.
+- Bulk update supported fields.
+- Upload product images.
+- Manage colour-specific images.
+- Manage sizes and variants.
+- Set product price.
+- Set discount price.
+- Configure SKU.
+- Manage stock.
+- Set low-stock threshold.
+- Assign categories.
+- Add descriptions and specifications.
+- Configure product SEO fields where relevant.
+
+Product changes must be persisted in Firebase.
+
+Use clear validation and meaningful success or error messages.
+
+Prevent duplicate SKUs where uniqueness is required.
+
+Use archival or soft deletion when historical orders depend on product records.
+
+Do not permanently delete historical order data when a product is removed from public listings.
+
+---
+
+# 10. CATEGORY MANAGEMENT
+
+Build a functional category manager.
+
+Allow authorized administrators to:
+
+- Add a category.
+- Edit a category.
+- Upload a category image.
+- Change category names.
+- Edit category descriptions.
+- Change category slugs.
+- Reorder categories.
+- Publish or hide categories.
+- Assign products to categories.
+- View the number of products in a category.
+
+Category updates must synchronize with the customer website.
+
+Prevent accidental removal of categories that are still referenced by active products, or provide a safe reassignment workflow.
+
+---
+
+# 11. INVENTORY AND WAREHOUSE MANAGEMENT
+
+Build a working inventory management system.
+
+Include:
+
+- Product inventory.
+- Variant-level inventory.
+- Warehouse records.
+- Stock movements.
+- Stock adjustments.
+- Incoming stock.
+- Outgoing stock.
+- Low-stock alerts.
+- Out-of-stock alerts.
+- Inventory search.
+- Inventory history.
+- Stock transfer between warehouses where supported.
+
+Authorized staff must be able to add warehouses and manage their permitted inventory records.
+
+Each inventory adjustment must record:
+
+- Product.
+- Variant.
+- Warehouse.
+- Previous quantity.
+- Quantity change.
+- New quantity.
+- Reason.
+- Acting administrator.
+- Timestamp.
+
+Use atomic transactions or other safe server-side operations for inventory changes.
+
+Prevent overselling by revalidating and reserving or decrementing stock through trusted server-side logic.
+
+Ensure concurrent orders cannot purchase more stock than is available.
+
+Do not count the same inventory quantity twice across warehouses.
+
+---
+
+# 12. ORDER MANAGEMENT AND FULFILMENT
+
+Create a complete order management system.
+
+Display:
+
+- Order ID.
+- Order date.
+- Customer details permitted for the assigned role.
+- Product names.
+- Product variants.
+- Selected colours.
+- Selected sizes.
+- Item quantities.
+- Item prices at the time of purchase.
+- Discounts.
+- Shipping details.
+- Payment status.
+- Order status.
+- Tracking number.
+- Order total.
+
+Include searchable and filterable order lists.
+
+### Order Lifecycle
+
+Support an appropriate configurable lifecycle, such as:
+
+- Pending Payment.
+- Payment Confirmed.
+- Processing.
+- Packed.
+- Shipped.
+- Out for Delivery.
+- Delivered.
+- Cancelled.
+- Return Requested.
+- Returned.
+- Refund Processing.
+- Refunded.
+
+Validate allowed transitions.
+
+Keep payment status separate from fulfilment status.
+
+Record status changes in order history with timestamps and the responsible actor.
+
+Customers should see the current order status on their account page.
+
+Order creation, payment verification, inventory changes, and stock restoration must be handled safely.
+
+Use idempotency and transaction safeguards to prevent duplicate orders or duplicate payment processing.
+
+Do not create fake orders or fake revenue.
+
+---
+
+# 13. CUSTOMER MANAGEMENT
+
+Build a customer management module with real Firebase data.
+
+Display:
+
+- Customer name.
+- Verified email where available.
+- Registration date.
+- Relevant order count.
+- Permitted purchase history.
+- Account status.
+- Customer support information where available.
+
+Support search and filtering.
+
+Allow authorized staff to view customer details according to their role.
+
+Do not expose customer passwords or authentication tokens.
+
+Do not allow staff to modify a customer's account identity or security credentials without a secure, explicitly authorized process.
+
+Customer account information must remain associated with the correct Firebase UID.
+
+A customer's personal profile must never be visible to another customer.
+
+---
+
+# 14. REVIEWS AND RATINGS
+
+Implement real product reviews.
+
+Customers may submit reviews according to the configured policy.
+
+Include:
+
+- Star rating.
+- Review text.
+- Review date.
+- Product association.
+- Customer association.
+- Moderation status.
+- Optional review images.
+
+Implement moderation actions for authorized administrators.
+
+Support marking reviews as approved, hidden, or rejected.
+
+Only display reviews that satisfy the publication policy.
+
+Prevent unauthorized review editing and duplicate submissions according to the configured rules.
+
+Do not fabricate customer reviews or ratings.
+
+Update product rating summaries using genuine published reviews.
+
+---
+
+# 15. DYNAMIC HOMEPAGE BUILDER
+
+Build a real visual homepage builder inside the admin panel.
+
+Authorized administrators should be able to configure homepage sections without editing source code.
+
+Support sections such as:
+
+- Hero slider.
+- Promotional banner.
+- Category circles.
+- Featured products.
+- Best sellers.
+- New arrivals.
+- Trending products.
+- Flash sales.
+- Recommended products.
+- Custom product collections.
+- Promotional text.
+- Image banners.
+
+For each supported section, allow:
+
+- Add section.
+- Edit section.
+- Reorder section.
+- Hide section.
+- Show section.
+- Delete section safely.
+- Select products or categories.
+- Upload images.
+- Set headings.
+- Set descriptions.
+- Configure button text.
+- Configure destination links.
+- Set publication dates where applicable.
+
+Save the homepage configuration to Firestore.
+
+Support draft and published versions where practical.
+
+The customer homepage must render from the published configuration.
+
+When the administrator publishes changes, the customer website must update automatically through Firestore listeners or an equivalent reliable synchronization mechanism.
+
+Validate links, image uploads, product references, and required fields before publication.
+
+Provide a preview of the proposed changes.
+
+Do not display unpublished draft changes to ordinary customers.
+
+---
+
+# 16. MARKETING AND PROMOTIONS
+
+Create a working marketing module.
+
+Support:
+
+- Coupons.
+- Percentage discounts.
+- Fixed-amount discounts.
+- Minimum purchase requirements.
+- Usage limits.
+- Expiry dates.
+- Eligible products.
+- Eligible categories.
+- Campaign banners.
+- Homepage promotions.
+- Publication status.
+
+Validate coupons on the server.
+
+Prevent expired, exhausted, or ineligible coupons from being applied.
+
+Calculate final prices on the server.
+
+Do not allow the browser to alter coupon values or bypass purchase requirements.
+
+---
+
+# 17. NOTIFICATION SYSTEM
+
+Implement a real notification system.
+
+### Customer Notifications
+
+Support relevant notifications for:
+
+- Order confirmation.
+- Payment confirmation.
+- Order status changes.
+- Shipment updates.
+- Delivery confirmation.
+- Cancellation.
+- Refund updates.
+- Relevant promotional campaigns when enabled.
+
+### Admin Notifications
+
+Support alerts for:
+
+- New orders.
+- Low-stock products.
+- Out-of-stock products.
+- Payment verification issues.
+- Customer support events.
+- Other important configured events.
+
+Persist notification records in Firestore.
+
+Include read and unread states, timestamps, and relevant links.
+
+Use real-time listeners for in-app notification updates.
+
+For push notifications, implement Firebase Cloud Messaging with the necessary permission flow and service-worker setup.
+
+Generate push notifications from trusted server-side events.
+
+Do not expose server credentials in the frontend.
+
+If push notifications are not configured, the in-app notification system must still work.
+
+Do not display fake notifications as though real events occurred.
+
+---
+
+# 18. WEBSITE SETTINGS
+
+Build a functional settings page for authorized administrators.
+
+Include configurable settings for:
+
+- Website name.
+- Logo.
+- Brand assets.
+- Contact details.
+- Currency.
+- Tax settings.
+- Shipping settings.
+- Free-shipping thresholds.
+- Low-stock thresholds.
+- Order policies.
+- Return policies.
+- Notification preferences.
+- Homepage defaults.
+- Payment provider configuration status.
+- Maintenance mode where supported.
+
+Save settings to Firestore or an appropriate secure configuration store.
+
+Sensitive payment credentials and privileged secrets must remain in a trusted backend secret manager.
+
+Validate all settings before saving.
+
+Only authorized administrators may edit each setting.
+
+Changes must be reflected in the customer website wherever relevant.
+
+---
+
+# 19. SEARCH AND NAVIGATION
+
+Implement a working search experience.
+
+Support product-name and category search.
+
+Provide relevant filters and useful empty states.
+
+Use a search solution appropriate for the dataset size. Do not assume Firestore provides unrestricted full-text search.
+
+If advanced search is needed, integrate an appropriate search service or implement a clearly documented alternative.
+
+Ensure navigation works on mobile and desktop.
+
+Every button and menu item must have a defined action.
+
+Do not leave placeholder links, non-functional controls, or empty pages presented as completed features.
+
+---
+
+# 20. PROFESSIONAL UI AND UX
+
+Create a modern, premium, fashion-focused design.
+
+The interface must be professional, consistent, and easy to navigate.
+
+Use:
+
+- Clean typography.
+- Consistent spacing.
+- A restrained colour palette.
+- Clear visual hierarchy.
+- Professional product cards.
+- Well-organized admin tables.
+- Responsive layouts.
+- Accessible form controls.
+- Consistent buttons.
+- Appropriate loading indicators.
+- Skeleton states where useful.
+- Empty states.
+- Error states.
+- Success feedback.
+- Confirmation dialogs for destructive actions.
+
+Avoid:
+
+- Excessive buttons.
+- Oversized controls.
+- Crowded dashboards.
+- Inconsistent borders.
+- Misaligned elements.
+- Unnecessary decorative cards.
+- Excessive gradients.
+- Random colours.
+- Unprofessional default layouts.
+- Repeated placeholder content.
+
+Use a consistent design system for customer and admin interfaces.
+
+Use compact, functional controls in the admin dashboard while keeping touch targets accessible on mobile.
+
+The customer website must be optimized for mobile shopping.
+
+The admin dashboard should adapt to mobile screens without breaking tables, forms, navigation, or modal dialogs.
+
+---
+
+# 21. FIRESTORE DATA MODEL
+
+Create a documented and maintainable Firestore schema.
+
+Suggested collections:
+
+users/{uid}
+
+products/{productId}
+
+categories/{categoryId}
+
+orders/{orderId}
+
+carts/{uid}
+
+wishlists/{uid}
+
+reviews/{reviewId}
+
+homepageConfigs/{configId}
+
+siteSettings/{settingsId}
+
+adminProfiles/{uid}
+
+inventory/{inventoryId}
+
+warehouses/{warehouseId}
+
+stockMovements/{movementId}
+
+notifications/{notificationId}
+
+coupons/{couponId}
+
+auditLogs/{logId}
+
+Use subcollections or additional collections where appropriate.
+
+### Product Data
+
+A product should support:
+
+- Product ID.
+- Name.
+- Slug.
+- Description.
+- Category IDs.
+- Brand where applicable.
+- Base price.
+- Status.
+- Images.
+- Colour variants.
+- Size variants.
+- SKU.
+- Stock references.
+- SEO fields.
+- Creation timestamp.
+- Update timestamp.
+
+Store colour-specific image galleries within the relevant variant structure or linked documents.
+
+Use stable document IDs and consistent references.
+
+Do not duplicate large, frequently changing records unnecessarily.
+
+### Order Data
+
+Store an order snapshot containing the purchased product name, variant, colour, size, quantity, unit price, discount, and applicable charges.
+
+Historical orders must remain accurate even if a product is subsequently edited or archived.
+
+---
+
+# 22. FIREBASE SECURITY RULES
+
+Security is mandatory.
+
+Create and document Firestore Security Rules and Storage Security Rules.
+
+Requirements:
+
+- Customers can read and update only permitted fields in their own profiles.
+- Customers can read only their own private order records.
+- Customers cannot assign themselves administrator roles.
+- Customers cannot change their payment status.
+- Customers cannot alter trusted order totals.
+- Customers cannot directly adjust inventory.
+- Customers cannot access other users' private data.
+- Only authorized staff can perform permitted administrative operations.
+- Administrative privileges must be derived from trusted, server-controlled authorization data or verified custom claims.
+- Product images and other uploads must follow the intended public/private access policy.
+- Only authorized roles can upload or modify administrative assets.
+- Sensitive administrative records must not be publicly readable.
+
+Validate all critical business operations on a trusted backend.
+
+Use Firebase App Check where appropriate.
+
+Never deploy permissive rules such as unrestricted reads and writes to the entire database.
+
+Do not claim the system is secure until the actual rules and backend authorization have been implemented and tested.
+
+---
+
+# 23. DEMO DATA AND PRODUCTION DATA
+
+The initial project may contain a small, clearly identified seed dataset to demonstrate the shopping experience.
+
+Create realistic sample products across several categories.
+
+Include multiple colour variants and multiple images for selected products.
+
+Include size variants for relevant clothing products.
+
+Provide useful category images and promotional banners.
+
+However:
+
+- Seed products must be distinguishable from genuine business records.
+- Demo orders must not be counted as real sales.
+- Do not generate random revenue.
+- Do not generate fake customers.
+- Do not fabricate reviews.
+- Do not create fake payment confirmations.
+- Do not automatically grant administrator privileges to sample customer accounts.
+- Do not leave permanent mock-data fallbacks in production code.
+
+Provide a safe, documented way to load seed data into a development environment.
+
+Provide a way to remove seed data without deleting genuine customer records.
+
+If the production database is empty, show a useful empty state instead of inventing data.
+
+---
+
+# 24. ERROR HANDLING AND DATA INTEGRITY
+
+Implement:
+
+- Input validation.
+- Permission error handling.
+- Network error handling.
+- Loading states.
+- Duplicate-submission prevention.
+- Safe transaction handling.
+- Inventory consistency checks.
+- Payment verification.
+- Form error messages.
+- Retry handling where appropriate.
+- Logging for server-side failures.
+- Audit records for sensitive administrative operations.
+
+Do not silently ignore failed database operations.
+
+Do not show a success message before an operation has actually succeeded.
+
+If Firebase is disconnected or unavailable, display a useful error message and avoid pretending that changes have been saved.
+
+Prevent duplicate orders from repeated checkout submissions.
+
+Use idempotency controls for payment and order-processing events.
+
+---
+
+# 25. PERFORMANCE AND MAINTAINABILITY
+
+Implement:
+
+- Reusable components.
+- Type-safe data models.
+- Efficient Firestore queries.
+- Appropriate Firestore indexes.
+- Pagination for large collections.
+- Lazy loading for images.
+- Responsive image sizing.
+- Code splitting for major dashboard sections.
+- Efficient real-time listeners.
+- Cleanup of subscriptions when components unmount.
+- Secure handling of user sessions.
+- Clear separation between frontend and privileged backend logic.
+
+Do not load every order, product, or customer into the browser when the dataset becomes large.
+
+Avoid excessive real-time listeners.
+
+Document the Firestore indexes required by implemented queries.
+
+---
+
+# 26. ROUTING AND DEPLOYMENT
+
+Create proper customer and admin routes.
+
+Suggested routes:
+
+Customer:
+- /
+- /products
+- /category/:slug
+- /product/:slug
+- /cart
+- /checkout
+- /login
+- /register
+- /account
+- /account/addresses
+- /account/orders
+- /account/orders/:orderId
+- /wishlist
+
+Admin:
+- /superadmin
+- /superadmin/dashboard
+- /superadmin/products
+- /superadmin/categories
+- /superadmin/orders
+- /superadmin/customers
+- /superadmin/reviews
+- /superadmin/inventory
+- /superadmin/warehouses
+- /superadmin/marketing
+- /superadmin/homepage-builder
+- /superadmin/notifications
+- /superadmin/settings
+- /superadmin/admin-management
+
+Implement route protection and role-specific access.
+
+Configure the hosting environment so that direct navigation and page refresh work on nested routes.
+
+For Vercel deployments, configure the appropriate SPA rewrite only if the project uses a client-side SPA architecture.
+
+Do not redirect every unknown route to a successful homepage.
+
+Provide a genuine 404 page for invalid routes.
+
+Ensure refresh works on valid customer and admin routes.
+
+Do not expose sensitive admin information through publicly accessible pages or APIs.
+
+---
+
+# 27. TESTING REQUIREMENTS
+
+Test the actual application flows.
+
+### Authentication Tests
+
+- Customer registration.
+- Google login.
+- Email and password login.
+- Logout.
+- Password reset.
+- Protected customer routes.
+- Protected administrator routes.
+- Unauthorized access denial.
+
+### Product Tests
+
+- Add a product.
+- Edit a product.
+- Upload product images.
+- Add colour-specific images.
+- Add sizes.
+- Change variant stock.
+- Publish a product.
+- Hide a product.
+- Verify customer-facing synchronization.
+
+### Order Tests
+
+- Add to cart.
+- Change quantity.
+- Validate stock.
+- Checkout.
+- Verify payment before marking it paid.
+- Create an order.
+- Update order status.
+- Verify customer order tracking.
+- Cancel an eligible order.
+- Verify inventory restoration where required.
+
+### Permission Tests
+
+- Product Leader cannot access Super Admin-only functions.
+- Order Manager cannot modify administrator roles.
+- Marketing Leader cannot access unauthorized customer data.
+- Customer Manager cannot change payment credentials.
+- Ordinary customers cannot access admin functions.
+- Customers cannot view another customer's orders.
+
+### Homepage Tests
+
+- Add a homepage section.
+- Edit a banner.
+- Reorder sections.
+- Save a draft.
+- Publish the homepage.
+- Confirm changes appear on the customer website.
+
+### Data Integrity Tests
+
+- Failed operations do not show success.
+- Duplicate submissions do not create duplicate orders.
+- Inventory cannot become negative through concurrent purchases.
+- Invalid coupon applications are rejected.
+- Historical order snapshots remain correct.
+- Unauthorized database writes are rejected.
+
+---
+
+# 28. DEVELOPMENT WORKFLOW
+
+Build the application in the following order.
+
+Phase 1:
+Project architecture, design system, routing, and Firebase initialization.
+
+Phase 2:
+Firebase Authentication, customer profiles, and secure admin provisioning.
+
+Phase 3:
+Firestore schema, security rules, and Storage rules.
+
+Phase 4:
+Category management, product management, variants, and colour-specific images.
+
+Phase 5:
+Customer storefront, search, product details, cart, and wishlist.
+
+Phase 6:
+Checkout, secure payment integration, and order processing.
+
+Phase 7:
+Order management, fulfilment, inventory, and warehouses.
+
+Phase 8:
+Role-based access control and administrator management.
+
+Phase 9:
+Homepage builder, marketing, reviews, and notifications.
+
+Phase 10:
+Analytics, website settings, testing, optimization, and deployment.
+
+Do not stop after producing a UI mockup.
+
+Do not replace real functionality with static JSON when the application is expected to use Firebase.
+
+If a feature depends on external credentials or configuration, implement the integration structure, explain what remains to be configured, and never pretend it is operational before verification.
+
+---
+
+# 29. FINAL ACCEPTANCE CRITERIA
+
+The project is complete only when:
+
+1. The customer website is functional.
+2. The admin dashboard is functional.
+3. Firebase Authentication works.
+4. Customer data persists across sessions.
+5. Product data persists in Firestore.
+6. Product images upload to Firebase Storage.
+7. Colour-specific image switching works.
+8. Size and colour variants work correctly.
+9. Product changes synchronize with the customer storefront.
+10. Homepage changes synchronize after publication.
+11. The cart and checkout enforce valid prices and stock.
+12. Order records persist and are visible to authorized users.
+13. Payment status is verified securely.
+14. Inventory is consistent with orders.
+15. Dashboard metrics use actual eligible business data.
+16. Administrator roles and permissions are enforced.
+17. Reviews and notifications use real records.
+18. Customer information remains private.
+19. Direct route refresh works on deployment.
+20. No major button is merely decorative.
+21. No major feature is falsely presented as completed.
+22. Firebase Security Rules and Storage Rules are implemented.
+23. The project builds successfully.
+24. Critical customer and admin workflows pass testing.
+25. Deployment and configuration instructions are documented.
+
+## FINAL INSTRUCTION
+
+Build a real, integrated ZOODI e-commerce platform with a clean professional interface, reliable Firebase persistence, secure role-based administration, and automatic synchronization between the admin dashboard and customer storefront.
+
+Prioritize correctness, security, maintainability, and complete end-to-end functionality over decorative UI elements.
+
+Inspect the generated project, run available tests, fix errors, verify the build, and clearly report any remaining configuration or deployment steps.
+
+**Do not claim a feature is fully working unless its implementation and required integrations have been verified.**
