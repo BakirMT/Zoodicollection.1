@@ -2,6 +2,7 @@ import {
   collection,
   doc,
   setDoc,
+  getDoc,
   deleteDoc,
   updateDoc,
   onSnapshot,
@@ -36,6 +37,7 @@ import {
 
 // Firestore collection names
 export const FIRESTORE_COLLECTIONS = {
+  METADATA: '_system_metadata',
   PRODUCTS: 'products',
   CATEGORIES: 'categories',
   SUB_CATEGORIES: 'sub_categories',
@@ -48,14 +50,22 @@ export const FIRESTORE_COLLECTIONS = {
 };
 
 /**
- * Seeds initial catalog and store records to Cloud Firestore if the database is currently empty.
- * Ensures the persistent Firestore database contains the ZOODI catalog across all devices and sessions.
+ * Seeds initial catalog and store records to Cloud Firestore ONLY ONCE.
+ * Once initialized, records an 'initial_seed' flag so user deletions are never overwritten.
  */
 export async function seedFirestoreIfEmpty(): Promise<void> {
   try {
+    const metaRef = doc(db, FIRESTORE_COLLECTIONS.METADATA, 'initial_seed');
+    const metaSnap = await getDoc(metaRef).catch(() => null);
+    if (metaSnap && metaSnap.exists()) {
+      // Store has already completed initial seeding. Never re-seed even if collections are emptied!
+      return;
+    }
+
     const productsSnap = await getDocs(query(collection(db, FIRESTORE_COLLECTIONS.PRODUCTS), limit(1)));
     if (!productsSnap.empty) {
-      // Database already seeded with products
+      // Database already contains records; mark as seeded
+      await setDoc(metaRef, { seeded: true, timestamp: new Date().toISOString() });
       return;
     }
 
@@ -96,6 +106,9 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
       await setDoc(doc(db, FIRESTORE_COLLECTIONS.ORDERS, ord.id), ord);
     }
 
+    // 8. Record initialization flag to prevent future re-seeding
+    await setDoc(metaRef, { seeded: true, timestamp: new Date().toISOString() });
+
     console.info('[FirestoreSync] Successfully seeded initial ZOODI catalog to Cloud Firestore.');
   } catch (error) {
     console.warn('[FirestoreSync] Notice during database seed check:', error);
@@ -113,13 +126,8 @@ export function subscribeToProducts(callback: (products: Product[]) => void): ()
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const prods = snapshot.docs.map((docSnap) => docSnap.data() as Product);
-        callback(prods);
-      } else {
-        // If snapshot is empty, seed initial products
-        seedFirestoreIfEmpty().catch(console.warn);
-      }
+      const prods = snapshot.docs.map((docSnap) => docSnap.data() as Product);
+      callback(prods);
     },
     (err) => {
       console.warn('[FirestoreSync] products onSnapshot error:', err);
@@ -135,11 +143,9 @@ export function subscribeToMainCategories(callback: (categories: MainCategory[])
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as MainCategory);
-        list.sort((a, b) => a.order - b.order);
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as MainCategory);
+      list.sort((a, b) => a.order - b.order);
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] categories onSnapshot error:', err);
@@ -155,11 +161,9 @@ export function subscribeToSubCategories(callback: (subs: SubCategory[]) => void
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as SubCategory);
-        list.sort((a, b) => a.order - b.order);
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as SubCategory);
+      list.sort((a, b) => a.order - b.order);
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] sub_categories onSnapshot error:', err);
@@ -175,11 +179,9 @@ export function subscribeToSubSubCategories(callback: (subsubs: SubSubCategory[]
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as SubSubCategory);
-        list.sort((a, b) => a.order - b.order);
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as SubSubCategory);
+      list.sort((a, b) => a.order - b.order);
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] sub_sub_categories onSnapshot error:', err);
@@ -195,11 +197,9 @@ export function subscribeToHomepageSections(callback: (sections: HomepageSection
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as HomepageSection);
-        list.sort((a, b) => a.order - b.order);
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as HomepageSection);
+      list.sort((a, b) => a.order - b.order);
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] homepage_sections onSnapshot error:', err);
@@ -215,10 +215,8 @@ export function subscribeToCoupons(callback: (coupons: Coupon[]) => void): () =>
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as Coupon);
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as Coupon);
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] coupons onSnapshot error:', err);
@@ -234,11 +232,9 @@ export function subscribeToOrders(callback: (orders: Order[]) => void): () => vo
   return onSnapshot(
     colRef,
     (snapshot) => {
-      if (!snapshot.empty) {
-        const list = snapshot.docs.map((d) => d.data() as Order);
-        list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
-        callback(list);
-      }
+      const list = snapshot.docs.map((d) => d.data() as Order);
+      list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
+      callback(list);
     },
     (err) => {
       console.warn('[FirestoreSync] orders onSnapshot error:', err);

@@ -89,6 +89,7 @@ export const AdminDashboard: React.FC = () => {
   // State for Add / Edit Product Modal
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
 
   // Form states for product
   const [pName, setPName] = useState('');
@@ -403,6 +404,13 @@ export const AdminDashboard: React.FC = () => {
     deleteCoupon(deletingCoupon.code);
     showNotice(`Coupon ${deletingCoupon.code} deleted successfully`, 'success');
     setDeletingCoupon(null);
+  };
+
+  const handleDeleteProductConfirm = () => {
+    if (!deletingProduct) return;
+    deleteProduct(deletingProduct.id);
+    showNotice(`Product "${deletingProduct.name}" deleted successfully from store & database`, 'success');
+    setDeletingProduct(null);
   };
 
   // Payment Receiver state (Admin only)
@@ -845,106 +853,207 @@ export const AdminDashboard: React.FC = () => {
                 </button>
               </div>
 
-              {/* Products Table */}
-              <div className="bg-white rounded-2xl border border-[#E6EAF0] overflow-hidden shadow-2xs">
-                <div className="overflow-x-auto no-scrollbar">
-                  <table className="w-full min-w-[650px] text-xs text-left">
-                    <thead className="bg-[#F6F8FA] text-[#697586] font-bold border-b border-[#E6EAF0]">
-                      <tr>
-                        <th className="p-3">Product Name</th>
-                        <th className="p-3">Category</th>
-                        <th className="p-3">Base Price</th>
-                        <th className="p-3">Color Variants & Independent Galleries</th>
-                        <th className="p-3">Total Stock</th>
-                        <th className="p-3">Status</th>
-                        <th className="p-3 text-right">Actions</th>
-                      </tr>
-                    </thead>
-                    <tbody className="divide-y divide-[#F0F4F8]">
-                      {products.map((p) => {
-                        const totalStock = p.variants.reduce((sum, v) => sum + v.stock, 0);
-                        return (
-                          <tr key={p.id} className="hover:bg-[#FBFDFE]">
-                            <td className="p-3 font-bold text-[#192E4D]">
-                              <div className="flex items-center gap-2">
-                                <img
-                                  src={p.variants[0]?.images[0]}
-                                  alt=""
-                                  className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
-                                />
-                                <div>
-                                  <span className="block">{p.name}</span>
-                                  <span className="text-[10px] text-[#08A9A2] font-semibold">
-                                    {p.brand}
-                                  </span>
-                                </div>
-                              </div>
-                            </td>
-                            <td className="p-3 text-[#697586]">{p.mainCategoryId}</td>
-                            <td className="p-3 font-extrabold text-[#192E4D]">
-                              ₹{Math.round(p.price).toLocaleString('en-IN')}
-                            </td>
-                            <td className="p-3">
-                              <div className="flex flex-col gap-1">
-                                {p.variants.map((v) => (
-                                  <div key={v.id} className="flex items-center gap-1.5">
-                                    <span
-                                      className="w-3 h-3 rounded-full border border-black/10 shrink-0"
-                                      style={{ backgroundColor: v.colorCode }}
-                                    />
-                                    <span className="font-semibold text-[#192E4D]">
-                                      {v.colorName}
-                                    </span>
-                                    <span className="text-[10px] text-[#697586]">
-                                      ({v.images.length} photos, {v.stock} pcs, SKU: {v.sku})
-                                    </span>
-                                  </div>
-                                ))}
-                              </div>
-                            </td>
-                            <td className="p-3 font-bold">
-                              <span
-                                className={`px-2 py-0.5 rounded-md ${
-                                  totalStock < 15
-                                    ? 'bg-rose-50 text-rose-700'
-                                    : 'bg-emerald-50 text-emerald-700'
-                                }`}
-                              >
-                                {totalStock} units
-                              </span>
-                            </td>
-                            <td className="p-3">
-                              <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
-                                {p.status}
-                              </span>
-                            </td>
-                            <td className="p-3 text-right">
-                              <div className="flex items-center justify-end gap-1.5">
-                                <button
-                                  type="button"
-                                  onClick={() => openEditProductModal(p)}
-                                  className="p-1.5 text-[#08A9A2] hover:bg-teal-50 rounded-lg transition-colors"
-                                  title="Edit Product & Colors"
-                                >
-                                  <Edit3 className="w-4 h-4" />
-                                </button>
-                                <button
-                                  type="button"
-                                  onClick={() => deleteProduct(p.id)}
-                                  className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors"
-                                  title="Delete Product"
-                                >
-                                  <Trash2 className="w-4 h-4" />
-                                </button>
-                              </div>
-                            </td>
-                          </tr>
-                        );
-                      })}
-                    </tbody>
-                  </table>
+              {/* Empty Products Notice */}
+              {products.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-[#E6EAF0] text-[#697586] space-y-3">
+                  <div className="w-12 h-12 rounded-full bg-teal-50 text-[#08A9A2] flex items-center justify-center mx-auto">
+                    <Package className="w-6 h-6" />
+                  </div>
+                  <div>
+                    <h3 className="font-extrabold text-sm text-[#192E4D]">No Products Found</h3>
+                    <p className="text-xs text-[#697586] mt-0.5">
+                      Your catalogue is currently empty. Click "Add Product" to create and publish items.
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => openAddProductModal()}
+                    className="px-4 py-2.5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold inline-flex items-center gap-1.5 shadow-sm transition-all cursor-pointer"
+                  >
+                    <Plus className="w-4 h-4" />
+                    <span>Add New Product</span>
+                  </button>
                 </div>
-              </div>
+              ) : (
+                <>
+                  {/* MOBILE VIEW (Smartphones & small screens): Dedicated cards with large tap targets */}
+                  <div className="block sm:hidden space-y-3">
+                    {products.map((p) => {
+                      const totalStock = p.variants.reduce((sum, v) => sum + v.stock, 0);
+                      return (
+                        <div
+                          key={p.id}
+                          className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs space-y-3"
+                        >
+                          <div className="flex items-start gap-3">
+                            <img
+                              src={p.variants[0]?.images[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80'}
+                              alt={p.name}
+                              className="w-16 h-16 object-cover rounded-xl border border-slate-100 shrink-0"
+                            />
+                            <div className="flex-1 min-w-0">
+                              <span className="text-[10px] uppercase font-bold text-[#08A9A2] tracking-wider block">
+                                {p.brand}
+                              </span>
+                              <h3 className="font-extrabold text-xs text-[#192E4D] truncate">{p.name}</h3>
+                              <div className="flex items-center gap-2 mt-1">
+                                <span className="font-black text-[#192E4D] text-xs">
+                                  ₹{Math.round(p.price).toLocaleString('en-IN')}
+                                </span>
+                                <span
+                                  className={`text-[10px] font-bold px-2 py-0.5 rounded-md ${
+                                    totalStock < 15 ? 'bg-rose-50 text-rose-700' : 'bg-emerald-50 text-emerald-700'
+                                  }`}
+                                >
+                                  {totalStock} in stock
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          {/* Color Variants Chips */}
+                          <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none text-[11px] text-[#697586]">
+                            <span className="font-bold text-[10px] uppercase text-slate-400">Colors:</span>
+                            {p.variants.map((v) => (
+                              <span
+                                key={v.id}
+                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 shrink-0"
+                              >
+                                <span
+                                  className="w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
+                                  style={{ backgroundColor: v.colorCode }}
+                                />
+                                <span className="text-[10px] font-semibold">{v.colorName}</span>
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Touch-Friendly Action Buttons */}
+                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                            <button
+                              type="button"
+                              onClick={() => openEditProductModal(p)}
+                              className="h-10 px-3 rounded-xl bg-teal-50 hover:bg-teal-100/70 border border-teal-200 text-[#08A9A2] font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <Edit3 className="w-3.5 h-3.5" />
+                              <span>Edit Product</span>
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => setDeletingProduct(p)}
+                              className="h-10 px-3 rounded-xl bg-rose-50 hover:bg-rose-100/70 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                              <span>Delete Product</span>
+                            </button>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+
+                  {/* DESKTOP VIEW (Table): Wide view with complete details */}
+                  <div className="hidden sm:block bg-white rounded-2xl border border-[#E6EAF0] overflow-hidden shadow-2xs">
+                    <div className="overflow-x-auto no-scrollbar">
+                      <table className="w-full min-w-[650px] text-xs text-left">
+                        <thead className="bg-[#F6F8FA] text-[#697586] font-bold border-b border-[#E6EAF0]">
+                          <tr>
+                            <th className="p-3">Product Name</th>
+                            <th className="p-3">Category</th>
+                            <th className="p-3">Base Price</th>
+                            <th className="p-3">Color Variants & Independent Galleries</th>
+                            <th className="p-3">Total Stock</th>
+                            <th className="p-3">Status</th>
+                            <th className="p-3 text-right">Actions</th>
+                          </tr>
+                        </thead>
+                        <tbody className="divide-y divide-[#F0F4F8]">
+                          {products.map((p) => {
+                            const totalStock = p.variants.reduce((sum, v) => sum + v.stock, 0);
+                            return (
+                              <tr key={p.id} className="hover:bg-[#FBFDFE]">
+                                <td className="p-3 font-bold text-[#192E4D]">
+                                  <div className="flex items-center gap-2">
+                                    <img
+                                      src={p.variants[0]?.images[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80'}
+                                      alt=""
+                                      className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
+                                    />
+                                    <div>
+                                      <span className="block">{p.name}</span>
+                                      <span className="text-[10px] text-[#08A9A2] font-semibold">
+                                        {p.brand}
+                                      </span>
+                                    </div>
+                                  </div>
+                                </td>
+                                <td className="p-3 text-[#697586]">{p.mainCategoryId}</td>
+                                <td className="p-3 font-extrabold text-[#192E4D]">
+                                  ₹{Math.round(p.price).toLocaleString('en-IN')}
+                                </td>
+                                <td className="p-3">
+                                  <div className="flex flex-col gap-1">
+                                    {p.variants.map((v) => (
+                                      <div key={v.id} className="flex items-center gap-1.5">
+                                        <span
+                                          className="w-3 h-3 rounded-full border border-black/10 shrink-0"
+                                          style={{ backgroundColor: v.colorCode }}
+                                        />
+                                        <span className="font-semibold text-[#192E4D]">
+                                          {v.colorName}
+                                        </span>
+                                        <span className="text-[10px] text-[#697586]">
+                                          ({v.images.length} photos, {v.stock} pcs, SKU: {v.sku})
+                                        </span>
+                                      </div>
+                                    ))}
+                                  </div>
+                                </td>
+                                <td className="p-3 font-bold">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-md ${
+                                      totalStock < 15
+                                        ? 'bg-rose-50 text-rose-700'
+                                        : 'bg-emerald-50 text-emerald-700'
+                                    }`}
+                                  >
+                                    {totalStock} units
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span className="px-2 py-0.5 rounded-full text-[10px] font-bold bg-emerald-100 text-emerald-800 uppercase">
+                                    {p.status}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <div className="flex items-center justify-end gap-1.5">
+                                    <button
+                                      type="button"
+                                      onClick={() => openEditProductModal(p)}
+                                      className="p-1.5 text-[#08A9A2] hover:bg-teal-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Edit Product & Colors"
+                                    >
+                                      <Edit3 className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() => setDeletingProduct(p)}
+                                      className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
+                                      title="Delete Product"
+                                    >
+                                      <Trash2 className="w-4 h-4" />
+                                    </button>
+                                  </div>
+                                </td>
+                              </tr>
+                            );
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
             </div>
           )}
 
@@ -2679,16 +2788,53 @@ export const AdminDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => setDeletingCoupon(null)}
-                className="flex-1 h-10 rounded-xl bg-[#F6F8FA] hover:bg-[#E6EAF0] text-[#192E4D] font-bold text-xs"
+                className="flex-1 h-10 rounded-xl bg-[#F6F8FA] hover:bg-[#E6EAF0] text-[#192E4D] font-bold text-xs cursor-pointer"
               >
                 Cancel
               </button>
               <button
                 type="button"
                 onClick={handleDeleteCouponConfirm}
-                className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs"
+                className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs cursor-pointer"
               >
                 Yes, Delete
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Delete Product Confirmation Modal */}
+      {deletingProduct && (
+        <div className="fixed inset-0 bg-black/60 backdrop-blur-xs flex items-center justify-center z-50 p-4 animate-in zoom-in-95">
+          <div className="bg-white rounded-3xl p-6 w-full max-w-sm shadow-2xl space-y-4 text-center border border-[#E6EAF0]">
+            <div className="w-12 h-12 rounded-full bg-rose-100 text-rose-600 flex items-center justify-center mx-auto">
+              <Trash2 className="w-6 h-6" />
+            </div>
+            <div>
+              <h3 className="font-extrabold text-base text-[#192E4D]">Delete Product?</h3>
+              <p className="text-xs text-[#697586] mt-1">
+                Are you sure you want to delete <strong className="text-[#192E4D]">"{deletingProduct.name}"</strong>?
+              </p>
+              <p className="text-[11px] text-rose-600 font-semibold mt-1">
+                This item will be permanently deleted from Cloud Firestore and will immediately vanish from all customer pages on computer, mobile, and any device.
+              </p>
+            </div>
+            <div className="flex gap-2 pt-2">
+              <button
+                type="button"
+                onClick={() => setDeletingProduct(null)}
+                className="flex-1 h-10 rounded-xl bg-[#F6F8FA] hover:bg-[#E6EAF0] text-[#192E4D] font-bold text-xs cursor-pointer"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={handleDeleteProductConfirm}
+                className="flex-1 h-10 rounded-xl bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs shadow-xs cursor-pointer flex items-center justify-center gap-1.5"
+              >
+                <Trash2 className="w-4 h-4" />
+                <span>Yes, Delete Product</span>
               </button>
             </div>
           </div>

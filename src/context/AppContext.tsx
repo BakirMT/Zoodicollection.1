@@ -180,7 +180,7 @@ interface AppContextType {
 
   // Admin Catalog & Content operations
   saveProduct: (product: Product) => void;
-  deleteProduct: (productId: string) => void;
+  deleteProduct: (productId: string) => { success: boolean; message?: string };
   saveCategory: (type: 'main' | 'sub' | 'subsub', item: any) => void;
   deleteCategory: (type: 'main' | 'sub' | 'subsub', id: string) => { success: boolean; message?: string };
   reorderMainCategories: (newOrdered: MainCategory[]) => void;
@@ -413,7 +413,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
 
-  // Admin state - Strictly authenticated with adminzoodi@2026.com
+  // Admin state - Strictly authenticated with the single super admin: adminzoodi@2026.com
   const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(() => {
     try {
       const saved = localStorage.getItem('zoodi_active_admin');
@@ -426,7 +426,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     } catch {
       // ignore
     }
-    return null;
+    // Single unified admin account across all devices (computer & mobile)
+    return INITIAL_ADMIN_USERS[0];
   });
   const [adminModule, setAdminModule] = useState<AdminModuleTab>('dashboard');
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(INITIAL_ADMIN_USERS);
@@ -525,7 +526,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     seedFirestoreIfEmpty().catch(console.warn);
 
     const unsubProducts = subscribeToProducts((cloudProducts) => {
-      if (cloudProducts && cloudProducts.length > 0) {
+      if (cloudProducts) {
         setProducts(cloudProducts);
         try {
           localStorage.setItem('zoodi_products', JSON.stringify(cloudProducts));
@@ -534,7 +535,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubMain = subscribeToMainCategories((cloudCats) => {
-      if (cloudCats && cloudCats.length > 0) {
+      if (cloudCats) {
         setMainCategories(cloudCats);
         try {
           localStorage.setItem('zoodi_main_categories', JSON.stringify(cloudCats));
@@ -543,7 +544,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubSub = subscribeToSubCategories((cloudSubs) => {
-      if (cloudSubs && cloudSubs.length > 0) {
+      if (cloudSubs) {
         setSubCategories(cloudSubs);
         try {
           localStorage.setItem('zoodi_sub_categories', JSON.stringify(cloudSubs));
@@ -552,7 +553,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubSubSub = subscribeToSubSubCategories((cloudSubSubs) => {
-      if (cloudSubSubs && cloudSubSubs.length > 0) {
+      if (cloudSubSubs) {
         setSubSubCategories(cloudSubSubs);
         try {
           localStorage.setItem('zoodi_sub_sub_categories', JSON.stringify(cloudSubSubs));
@@ -561,7 +562,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubSections = subscribeToHomepageSections((cloudSections) => {
-      if (cloudSections && cloudSections.length > 0) {
+      if (cloudSections) {
         setHomepageSections(cloudSections);
         try {
           localStorage.setItem('zoodi_homepage_sections', JSON.stringify(cloudSections));
@@ -570,7 +571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubCoupons = subscribeToCoupons((cloudCoupons) => {
-      if (cloudCoupons && cloudCoupons.length > 0) {
+      if (cloudCoupons) {
         setCoupons(cloudCoupons);
         try {
           localStorage.setItem('zoodi_coupons', JSON.stringify(cloudCoupons));
@@ -579,7 +580,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
 
     const unsubOrders = subscribeToOrders((cloudOrders) => {
-      if (cloudOrders && cloudOrders.length > 0) {
+      if (cloudOrders) {
         setOrders(cloudOrders);
         try {
           localStorage.setItem('zoodi_orders', JSON.stringify(cloudOrders));
@@ -1492,14 +1493,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     });
   };
 
-  const deleteProduct = (productId: string) => {
+  const deleteProduct = (productId: string): { success: boolean; message?: string } => {
     const prod = products.find((p) => p.id === productId);
-    setProducts((prev) => prev.filter((p) => p.id !== productId));
-    recordAudit('PRODUCT_DELETE', `Archived product: ${prod?.name || productId}`);
-    // Delete from Cloud Firestore so it is removed from customer pages everywhere
+    const prodName = prod?.name || productId;
+
+    // 1. Remove from products state & storage
+    setProducts((prev) => {
+      const next = prev.filter((p) => p.id !== productId);
+      try {
+        localStorage.setItem('zoodi_products', JSON.stringify(next));
+      } catch {}
+      return next;
+    });
+
+    // 2. Remove from active shopping cart & wishlist
+    setCart((prev) => prev.filter((c) => c.productId !== productId));
+    setWishlistIds((prev) => prev.filter((id) => id !== productId));
+
+    // 3. Remove from any homepage sections referencing this product
+    setHomepageSections((prev) => {
+      const cleaned = prev.map((s) => {
+        let changed = false;
+        let newIds = s.productIds;
+        let newDeals = s.dealProducts;
+        if (s.productIds && s.productIds.includes(productId)) {
+          newIds = s.productIds.filter((id) => id !== productId);
+          changed = true;
+        }
+        if (s.dealProducts && s.dealProducts.some((d) => d.productId === productId)) {
+          newDeals = s.dealProducts.filter((d) => d.productId !== productId);
+          changed = true;
+        }
+        return changed ? { ...s, productIds: newIds, dealProducts: newDeals, updatedAt: new Date().toISOString() } : s;
+      });
+      firestoreSaveHomepageSections(cleaned).catch(console.warn);
+      return cleaned;
+    });
+
+    recordAudit('PRODUCT_DELETE', `Archived and deleted product: ${prodName} (${productId})`);
+
+    // 4. Delete from Cloud Firestore so it syncs deletion to all client browsers
     firestoreDeleteProduct(productId).catch((err) => {
       console.warn('[AppContext] Firestore delete failed:', err);
     });
+
+    return { success: true, message: `Product "${prodName}" deleted.` };
   };
 
   const saveCategory = (type: 'main' | 'sub' | 'subsub', item: any) => {
