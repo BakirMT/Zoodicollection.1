@@ -173,6 +173,10 @@ interface AppContextType {
   currentAdmin: AdminUser | null;
   adminModule: AdminModuleTab;
   setAdminModule: (mod: AdminModuleTab) => void;
+  isAccessRestricted: boolean;
+  setIsAccessRestricted: (restricted: boolean) => void;
+  blockedAttemptEmail: string | null;
+  setBlockedAttemptEmail: (email: string | null) => void;
   adminLoginWithGoogle: (email?: string, name?: string, avatar?: string) => { success: boolean; error?: string };
   adminLogin: (email: string, pass: string) => { success: boolean; error?: string };
   adminLogout: () => void;
@@ -430,6 +434,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return null;
   });
   const [adminModule, setAdminModule] = useState<AdminModuleTab>('dashboard');
+  const [isAccessRestricted, setIsAccessRestricted] = useState<boolean>(false);
+  const [blockedAttemptEmail, setBlockedAttemptEmail] = useState<string | null>(null);
   const [adminUsers, setAdminUsers] = useState<AdminUser[]>(INITIAL_ADMIN_USERS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
     const saved = localStorage.getItem('zoodi_audit_logs');
@@ -1397,15 +1403,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   ): { success: boolean; error?: string } => {
     const rawEmail = (email || '').trim().toLowerCase();
     if (rawEmail !== 'zoodicollection@gmail.com') {
+      const blocked = rawEmail || 'unknown@domain.com';
+      setBlockedAttemptEmail(blocked);
+      setIsAccessRestricted(true);
       recordAudit(
         'ADMIN_UNAUTHORIZED_ATTEMPT',
-        `Blocked unauthorized admin login attempt from Google account: ${rawEmail || 'unknown'}`
+        `Blocked unauthorized admin login attempt from Google account: ${blocked}`
       );
       return {
         success: false,
-        error: `Access Denied: Only authorized account zoodicollection@gmail.com can access the ZOODI Admin Portal. Account "${rawEmail || 'Unknown'}" is strictly restricted.`,
+        error: `Access Denied: Only authorized account zoodicollection@gmail.com can access the ZOODI Admin Portal. Account "${blocked}" is strictly restricted.`,
       };
     }
+
+    setIsAccessRestricted(false);
+    setBlockedAttemptEmail(null);
 
     const singleAdmin: AdminUser = {
       id: 'adm_zoodi_owner',
@@ -1433,6 +1445,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   const adminLogin = (_email: string, _pass: string): { success: boolean; error?: string } => {
+    setIsAccessRestricted(true);
+    setBlockedAttemptEmail('email-password-attempt');
     return {
       success: false,
       error: 'Email and password authentication has been removed. Please use "Continue with Google (zoodicollection@gmail.com)".',
@@ -1444,6 +1458,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       recordAudit('ADMIN_LOGOUT', `Admin ${currentAdmin.name} logged out`);
     }
     setCurrentAdmin(null);
+    setIsAccessRestricted(false);
+    setBlockedAttemptEmail(null);
     try {
       localStorage.removeItem('zoodi_active_admin');
     } catch {
@@ -2087,6 +2103,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         currentAdmin,
         adminModule,
         setAdminModule,
+        isAccessRestricted,
+        setIsAccessRestricted,
+        blockedAttemptEmail,
+        setBlockedAttemptEmail,
         adminLoginWithGoogle,
         adminLogin,
         adminLogout,

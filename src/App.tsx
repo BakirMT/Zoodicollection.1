@@ -18,6 +18,7 @@ import { NotificationCenterModal } from './components/NotificationCenterModal';
 import { CustomerNotificationPreferencesModal } from './components/CustomerNotificationPreferencesModal';
 import { AdminLoginScreen } from './views/admin/AdminLoginScreen';
 import { AdminDashboard } from './views/admin/AdminDashboard';
+import { RestrictedAccessScreen } from './views/admin/RestrictedAccessScreen';
 import { WifiOff, RefreshCw } from 'lucide-react';
 
 const AppShell: React.FC = () => {
@@ -25,6 +26,7 @@ const AppShell: React.FC = () => {
     currentRoute,
     navigateTo,
     currentAdmin,
+    isAccessRestricted,
     customerTab,
     setCustomerTab,
     activeScreen,
@@ -231,6 +233,9 @@ const AppShell: React.FC = () => {
 
   // If on admin route:
   if (currentRoute === '/superadmin') {
+    if (isAccessRestricted) {
+      return <RestrictedAccessScreen />;
+    }
     if (!currentAdmin || currentAdmin.email.toLowerCase().trim() !== 'zoodicollection@gmail.com') {
       return <AdminLoginScreen />;
     }

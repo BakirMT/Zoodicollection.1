@@ -934,35 +934,6 @@ export const AccountScreen: React.FC = () => {
             <ChevronRight className="w-4 h-4 text-[#697586]" />
           </button>
 
-          {/* Admin & RBAC Portal Access via Direct URL */}
-          <button
-            type="button"
-            onClick={() => {
-              navigateTo('/superadmin');
-              setAdminModule('admin_users');
-            }}
-            className="w-full min-h-[56px] px-4 py-3 flex items-center justify-between hover:bg-purple-50/50 active:bg-purple-100/50 transition-colors bg-gradient-to-r from-purple-50/30 to-transparent"
-          >
-            <div className="flex items-center gap-3">
-              <div className="w-6 h-6 rounded-lg bg-purple-100 text-purple-700 flex items-center justify-center">
-                <ShieldCheck className="w-4 h-4" />
-              </div>
-              <div className="text-left">
-                <span className="font-extrabold text-[#192E4D] block">Admin Roles & RBAC</span>
-                <span className="text-[10px] text-purple-700 font-mono flex items-center gap-1 font-semibold">
-                  <Link className="w-2.5 h-2.5" />
-                  <span>URL: /superadmin?module=admin_users</span>
-                </span>
-              </div>
-            </div>
-            <div className="flex items-center gap-1.5 text-purple-700">
-              <span className="text-[10px] font-extrabold uppercase bg-purple-100 px-2 py-0.5 rounded-md">
-                Admin
-              </span>
-              <ChevronRight className="w-4 h-4" />
-            </div>
-          </button>
-
           {/* Customer Log Out Action (when logged in) or Sign In (when logged out) */}
           {isCustomerLoggedIn ? (
             <button

@@ -102,20 +102,12 @@ export const AdminLoginScreen: React.FC = () => {
 
   return (
     <div className="min-h-screen bg-[#101E33] text-white flex flex-col justify-between p-4 sm:p-6">
-      {/* Top back button */}
-      <div className="flex items-center justify-between">
-        <button
-          type="button"
-          onClick={() => {
-            navigateTo('/');
-            setCustomerTab('home');
-            setActiveScreen('tab');
-          }}
-          className="min-h-[44px] flex items-center gap-2 text-xs sm:text-sm font-bold text-[#08A9A2] hover:text-white active:scale-95 transition-all p-1 cursor-pointer"
-        >
-          <ArrowLeft className="w-4 h-4" />
-          <span>Exit to Customer Store</span>
-        </button>
+      {/* Top security status bar */}
+      <div className="flex items-center justify-between w-full">
+        <div className="flex items-center gap-2">
+          <span className="w-2.5 h-2.5 rounded-full bg-emerald-400 animate-pulse" />
+          <span className="text-xs font-bold text-slate-300">ZOODI Management Engine</span>
+        </div>
 
         <span className="text-[10px] font-mono tracking-widest text-teal-300 bg-teal-950/80 border border-teal-800/80 px-3 py-1 rounded-full uppercase flex items-center gap-1.5">
           <Lock className="w-3 h-3 text-[#08A9A2]" />

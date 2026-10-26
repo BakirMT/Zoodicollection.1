@@ -611,19 +611,6 @@ export const AdminDashboard: React.FC = () => {
             </div>
           </div>
 
-          {/* Visit Shop Button (prominent on both mobile & desktop) */}
-          <button
-            type="button"
-            onClick={() => {
-              navigateTo('/');
-            }}
-            className="flex items-center gap-1.5 px-3 py-1.5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] active:scale-95 text-white text-xs font-black shadow-xs transition-all cursor-pointer"
-            title="Open real customer-facing shopping website"
-          >
-            <ShoppingBag className="w-3.5 h-3.5" />
-            <span>Visit Shop</span>
-          </button>
-
           {/* Admin Notifications Shortcut */}
           <button
             type="button"
@@ -661,21 +648,6 @@ export const AdminDashboard: React.FC = () => {
           aria-label="Admin Navigation"
           className="w-full md:w-64 bg-white border-r border-[#E6EAF0] p-3 shrink-0 flex md:flex-col gap-1 overflow-x-auto md:overflow-y-auto no-scrollbar"
         >
-          {/* Quick Visit Shop Button in Sidebar */}
-          <div className="pb-1 mb-1 border-b border-slate-100 shrink-0 hidden md:block">
-            <button
-              type="button"
-              onClick={() => navigateTo('/')}
-              className="w-full flex items-center justify-between px-3 py-2 rounded-xl text-xs font-black text-[#08A9A2] bg-[#08A9A2]/10 hover:bg-[#08A9A2]/20 border border-[#08A9A2]/30 transition-all cursor-pointer shadow-2xs"
-              title="Open public customer-facing shop"
-            >
-              <div className="flex items-center gap-2">
-                <Store className="w-4 h-4 text-[#08A9A2]" />
-                <span>Visit Customer Store</span>
-              </div>
-              <ExternalLink className="w-3.5 h-3.5 text-[#08A9A2]" />
-            </button>
-          </div>
           {modules.map((m) => {
             const isPermitted = hasAdminPermission(role, m.id as any);
             const isSelected = adminModule === m.id;

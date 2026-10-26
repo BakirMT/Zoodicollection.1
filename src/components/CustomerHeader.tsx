@@ -24,7 +24,6 @@ export const CustomerHeader: React.FC = () => {
     setSelectedCategorySlug,
     customerProfile,
     isCustomerLoggedIn,
-    currentAdmin,
     deviceFrameMode,
   } = useApp();
 
@@ -118,21 +117,6 @@ export const CustomerHeader: React.FC = () => {
           </button>
 
 
-
-          {/* Quick Admin Portal Button */}
-          <button
-            type="button"
-            onClick={() => navigateTo('/superadmin')}
-            className={`items-center gap-1.5 h-8 px-2.5 rounded-lg text-xs font-bold transition-all cursor-pointer ${
-              currentAdmin
-                ? 'flex bg-amber-500/15 hover:bg-amber-500/25 text-amber-800 border border-amber-400/60 shadow-xs'
-                : 'hidden sm:flex bg-[#08A9A2]/10 hover:bg-[#08A9A2]/20 text-[#08A9A2] border border-[#08A9A2]/30'
-            }`}
-            title="Admin & Staff Portal"
-          >
-            <ShieldCheck className="w-3.5 h-3.5" />
-            <span>{currentAdmin ? 'Admin Panel' : 'Admin'}</span>
-          </button>
 
           {/* Customer Profile Shortcut */}
           <button
