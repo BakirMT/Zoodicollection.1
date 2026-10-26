@@ -1,4 +1,4 @@
-import React, { useRef } from 'react';
+import React from 'react';
 import { useApp } from '../context/AppContext';
 import { ZoodiLogo } from './ZoodiLogo';
 import {
@@ -28,27 +28,11 @@ export const CustomerHeader: React.FC = () => {
     deviceFrameMode,
   } = useApp();
 
-  // Hidden admin access: 3 quick taps on the brand logo
-  const logoTapCountRef = useRef(0);
-  const logoTapTimerRef = useRef<NodeJS.Timeout | null>(null);
-
   const handleLogoClick = () => {
-    logoTapCountRef.current += 1;
-    if (logoTapTimerRef.current) clearTimeout(logoTapTimerRef.current);
-
-    if (logoTapCountRef.current >= 3) {
-      logoTapCountRef.current = 0;
-      navigateTo('/superadmin');
-      return;
-    }
-
-    logoTapTimerRef.current = setTimeout(() => {
-      logoTapCountRef.current = 0;
-    }, 1200);
-
     setSelectedCategorySlug(null);
     setCustomerTab('home');
     setActiveScreen('tab');
+    navigateTo('/');
   };
 
   const handleCategoryClick = (catId: string | null) => {

@@ -53,6 +53,26 @@ import {
   dbSaveHomepageDraft,
   dbLoadHomepageDraft,
 } from '../lib/database';
+import {
+  subscribeToProducts,
+  subscribeToMainCategories,
+  subscribeToSubCategories,
+  subscribeToSubSubCategories,
+  subscribeToHomepageSections,
+  subscribeToCoupons,
+  subscribeToOrders,
+  firestoreSaveProduct,
+  firestoreDeleteProduct,
+  firestoreSaveCategory,
+  firestoreDeleteCategory,
+  firestoreSaveHomepageSections,
+  firestoreDeleteHomepageSection,
+  firestoreSaveOrder,
+  firestoreUpdateOrderStatus,
+  firestoreSaveCoupon,
+  firestoreDeleteCoupon,
+  seedFirestoreIfEmpty,
+} from '../services/firestoreSync';
 
 export type CustomerTab = 'home' | 'categories' | 'wishlist' | 'cart' | 'account';
 
@@ -320,7 +340,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [isCustomerLoggedIn, setIsCustomerLoggedIn] = useState<boolean>(() => {
     const saved = localStorage.getItem('zoodi_customer_logged_in');
-    return saved !== null ? saved === 'true' : true;
+    return saved !== null ? saved === 'true' : false;
   });
 
   const [customerProfile, setCustomerProfile] = useState<CustomerProfile>({
@@ -393,21 +413,23 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_SUPPORT_TICKETS;
   });
 
-  // Admin state
-  const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(null);
-  const [adminModule, setAdminModule] = useState<AdminModuleTab>('dashboard');
-  const [adminUsers, setAdminUsers] = useState<AdminUser[]>(() => {
-    const saved = localStorage.getItem('zoodi_admin_users');
-    if (!saved) return INITIAL_ADMIN_USERS;
+  // Admin state - Strictly authenticated with adminzoodi@2026.com
+  const [currentAdmin, setCurrentAdmin] = useState<AdminUser | null>(() => {
     try {
-      const parsed: AdminUser[] = JSON.parse(saved);
-      const existingEmails = new Set(parsed.map((u) => u.email.toLowerCase()));
-      const missing = INITIAL_ADMIN_USERS.filter((u) => !existingEmails.has(u.email.toLowerCase()));
-      return missing.length > 0 ? [...parsed, ...missing] : parsed;
+      const saved = localStorage.getItem('zoodi_active_admin');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (parsed.email?.toLowerCase() === 'adminzoodi@2026.com') {
+          return parsed;
+        }
+      }
     } catch {
-      return INITIAL_ADMIN_USERS;
+      // ignore
     }
+    return null;
   });
+  const [adminModule, setAdminModule] = useState<AdminModuleTab>('dashboard');
+  const [adminUsers, setAdminUsers] = useState<AdminUser[]>(INITIAL_ADMIN_USERS);
   const [auditLogs, setAuditLogs] = useState<AuditLog[]>(() => {
     const saved = localStorage.getItem('zoodi_audit_logs');
     return saved ? JSON.parse(saved) : INITIAL_AUDIT_LOGS;
@@ -496,6 +518,84 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         setHomepageDraft(dbDraft);
       }
     });
+  }, []);
+
+  // Cloud Firestore Real-time Synchronization across all devices & browsers
+  useEffect(() => {
+    seedFirestoreIfEmpty().catch(console.warn);
+
+    const unsubProducts = subscribeToProducts((cloudProducts) => {
+      if (cloudProducts && cloudProducts.length > 0) {
+        setProducts(cloudProducts);
+        try {
+          localStorage.setItem('zoodi_products', JSON.stringify(cloudProducts));
+        } catch {}
+      }
+    });
+
+    const unsubMain = subscribeToMainCategories((cloudCats) => {
+      if (cloudCats && cloudCats.length > 0) {
+        setMainCategories(cloudCats);
+        try {
+          localStorage.setItem('zoodi_main_categories', JSON.stringify(cloudCats));
+        } catch {}
+      }
+    });
+
+    const unsubSub = subscribeToSubCategories((cloudSubs) => {
+      if (cloudSubs && cloudSubs.length > 0) {
+        setSubCategories(cloudSubs);
+        try {
+          localStorage.setItem('zoodi_sub_categories', JSON.stringify(cloudSubs));
+        } catch {}
+      }
+    });
+
+    const unsubSubSub = subscribeToSubSubCategories((cloudSubSubs) => {
+      if (cloudSubSubs && cloudSubSubs.length > 0) {
+        setSubSubCategories(cloudSubSubs);
+        try {
+          localStorage.setItem('zoodi_sub_sub_categories', JSON.stringify(cloudSubSubs));
+        } catch {}
+      }
+    });
+
+    const unsubSections = subscribeToHomepageSections((cloudSections) => {
+      if (cloudSections && cloudSections.length > 0) {
+        setHomepageSections(cloudSections);
+        try {
+          localStorage.setItem('zoodi_homepage_sections', JSON.stringify(cloudSections));
+        } catch {}
+      }
+    });
+
+    const unsubCoupons = subscribeToCoupons((cloudCoupons) => {
+      if (cloudCoupons && cloudCoupons.length > 0) {
+        setCoupons(cloudCoupons);
+        try {
+          localStorage.setItem('zoodi_coupons', JSON.stringify(cloudCoupons));
+        } catch {}
+      }
+    });
+
+    const unsubOrders = subscribeToOrders((cloudOrders) => {
+      if (cloudOrders && cloudOrders.length > 0) {
+        setOrders(cloudOrders);
+        try {
+          localStorage.setItem('zoodi_orders', JSON.stringify(cloudOrders));
+        } catch {}
+      }
+    });
+
+    return () => {
+      unsubProducts();
+      unsubMain();
+      unsubSub();
+      unsubSubSub();
+      unsubSections();
+      unsubCoupons();
+      unsubOrders();
+    };
   }, []);
 
   useEffect(() => {
@@ -1089,6 +1189,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveCoupon(null);
     setSelectedOrderId(orderId);
 
+    // Save order to Cloud Firestore so it syncs to admin panel across any device
+    firestoreSaveOrder(newOrder).catch((err) => {
+      console.warn('[AppContext] Order save to Firestore failed:', err);
+    });
+
+    // Sync decremented variant stock to Cloud Firestore
+    products.forEach((prod) => {
+      const orderItem = cart.find((c) => c.productId === prod.id);
+      if (orderItem) {
+        const updatedVariants = prod.variants.map((v) => {
+          if (v.id === orderItem.variantId) {
+            const newStock = Math.max(0, v.stock - orderItem.quantity);
+            const newSizeStock = { ...(v.sizeStock || {}) };
+            if (orderItem.size && newSizeStock[orderItem.size] !== undefined) {
+              newSizeStock[orderItem.size] = Math.max(0, newSizeStock[orderItem.size] - orderItem.quantity);
+            }
+            return {
+              ...v,
+              stock: newStock,
+              sizeStock: newSizeStock,
+            };
+          }
+          return v;
+        });
+        firestoreSaveProduct({ ...prod, variants: updatedVariants }).catch(console.warn);
+      }
+    });
+
     // Customer Notification: Order Placed
     sendNotification({
       recipientRole: 'customer',
@@ -1260,21 +1388,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setActiveScreen('login');
   };
 
-  // Admin authentication
+  // Admin authentication - strictly adminzoodi@2026.com and Admin@zoodi26
   const adminLogin = (email: string, pass: string): { success: boolean; error?: string } => {
-    // Verified admin accounts
     const emailNorm = email.trim().toLowerCase();
-    const found = adminUsers.find((u) => u.email.toLowerCase() === emailNorm);
-    if (!found) {
-      return { success: false, error: 'Access Denied: Unrecognized administrator email' };
+    if (emailNorm !== 'adminzoodi@2026.com') {
+      return { success: false, error: 'Access Denied: Unrecognized administrator email. Use authorized admin email.' };
     }
-    if (pass !== 'admin123' && pass !== 'zoodi2026') {
-      return { success: false, error: 'Invalid administrator credentials' };
+    if (pass !== 'Admin@zoodi26') {
+      return { success: false, error: 'Access Denied: Invalid administrator password.' };
     }
 
-    setCurrentAdmin(found);
-    NotificationService.registerFCMToken(found.id, 'admin');
-    recordAudit('ADMIN_LOGIN', `Admin ${found.name} (${found.role}) logged into management portal`);
+    const superAdminUser: AdminUser = {
+      id: 'adm_super_zoodi',
+      name: 'ZOODI Super Admin',
+      email: 'adminzoodi@2026.com',
+      role: 'super_admin',
+      department: 'Executive Leadership (Kerala Hub)',
+      phone: '+91 9072976516',
+      avatar: 'https://images.unsplash.com/photo-1534528741775-53994a69daeb?auto=format&fit=crop&w=200&q=80',
+      status: 'active',
+      lastActive: 'Just now',
+    };
+
+    setCurrentAdmin(superAdminUser);
+    try {
+      localStorage.setItem('zoodi_active_admin', JSON.stringify(superAdminUser));
+    } catch {
+      // ignore
+    }
+    NotificationService.registerFCMToken(superAdminUser.id, 'admin');
+    recordAudit('ADMIN_LOGIN', `Super Admin logged into management portal`);
     return { success: true };
   };
 
@@ -1283,6 +1426,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       recordAudit('ADMIN_LOGOUT', `Admin ${currentAdmin.name} logged out`);
     }
     setCurrentAdmin(null);
+    try {
+      localStorage.removeItem('zoodi_active_admin');
+    } catch {
+      // ignore
+    }
   };
 
   // Admin catalog actions
@@ -1337,12 +1485,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         });
       }
     }
+
+    // Write to Cloud Firestore for real-time synchronization across all devices
+    firestoreSaveProduct(sanitizedProduct).catch((err) => {
+      console.warn('[AppContext] Firestore write failed:', err);
+    });
   };
 
   const deleteProduct = (productId: string) => {
     const prod = products.find((p) => p.id === productId);
     setProducts((prev) => prev.filter((p) => p.id !== productId));
     recordAudit('PRODUCT_DELETE', `Archived product: ${prod?.name || productId}`);
+    // Delete from Cloud Firestore so it is removed from customer pages everywhere
+    firestoreDeleteProduct(productId).catch((err) => {
+      console.warn('[AppContext] Firestore delete failed:', err);
+    });
   };
 
   const saveCategory = (type: 'main' | 'sub' | 'subsub', item: any) => {
@@ -1378,28 +1535,48 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       });
     }
     recordAudit('CATEGORY_UPDATE', `Saved ${type} category: ${categoryItem.name} (${categoryItem.id})`);
+    firestoreSaveCategory(type, categoryItem).catch(console.warn);
   };
 
   const reorderMainCategories = (newOrdered: MainCategory[]) => {
     const updated = newOrdered.map((cat, idx) => ({ ...cat, order: idx + 1 }));
     setMainCategories(updated);
     recordAudit('CATEGORY_REORDER', `Reordered ${updated.length} homepage main categories`);
+    updated.forEach((c) => firestoreSaveCategory('main', c).catch(console.warn));
   };
 
   const toggleCategoryHomepageVisibility = (id: string) => {
-    setMainCategories((prev) =>
-      prev.map((c) => (c.id === id ? { ...c, showOnHomepage: c.showOnHomepage === false ? true : false } : c))
-    );
+    setMainCategories((prev) => {
+      const updated = prev.map((c) => (c.id === id ? { ...c, showOnHomepage: c.showOnHomepage === false ? true : false } : c));
+      const target = updated.find((c) => c.id === id);
+      if (target) firestoreSaveCategory('main', target).catch(console.warn);
+      return updated;
+    });
     recordAudit('CATEGORY_TOGGLE_HOMEPAGE', `Toggled homepage visibility for category ${id}`);
   };
 
   const toggleCategoryActiveStatus = (type: 'main' | 'sub' | 'subsub', id: string) => {
     if (type === 'main') {
-      setMainCategories((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c)));
+      setMainCategories((prev) => {
+        const updated = prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c));
+        const target = updated.find((c) => c.id === id);
+        if (target) firestoreSaveCategory('main', target).catch(console.warn);
+        return updated;
+      });
     } else if (type === 'sub') {
-      setSubCategories((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c)));
+      setSubCategories((prev) => {
+        const updated = prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c));
+        const target = updated.find((c) => c.id === id);
+        if (target) firestoreSaveCategory('sub', target).catch(console.warn);
+        return updated;
+      });
     } else {
-      setSubSubCategories((prev) => prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c)));
+      setSubSubCategories((prev) => {
+        const updated = prev.map((c) => (c.id === id ? { ...c, isActive: !c.isActive } : c));
+        const target = updated.find((c) => c.id === id);
+        if (target) firestoreSaveCategory('subsub', target).catch(console.warn);
+        return updated;
+      });
     }
     recordAudit('CATEGORY_TOGGLE_ACTIVE', `Toggled active status for ${type} category ${id}`);
   };
@@ -1437,6 +1614,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       setSubSubCategories((prev) => prev.filter((c) => c.id !== id));
     }
     recordAudit('CATEGORY_DELETE', `Deleted ${type} category: ${id}`);
+    firestoreDeleteCategory(type, id).catch(console.warn);
     return { success: true };
   };
 
@@ -1448,6 +1626,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }));
     setHomepageSections(sanitized);
     const ok = await dbSaveHomepageSections(sanitized);
+    firestoreSaveHomepageSections(sanitized).catch(console.warn);
     recordAudit('HOMEPAGE_BUILDER_UPDATE', `Updated and persisted ${sanitized.length} homepage sections`);
     return ok;
   };
@@ -1477,6 +1656,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHomepageDraft(null);
     const ok = await dbSaveHomepageSections(sanitized);
     await dbSaveHomepageDraft([]);
+    firestoreSaveHomepageSections(sanitized).catch(console.warn);
     try {
       localStorage.removeItem('zoodi_homepage_draft');
     } catch {
@@ -1503,6 +1683,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setHomepageDraft(null);
     const ok = await dbSaveHomepageSections(INITIAL_HOMEPAGE_SECTIONS);
     await dbSaveHomepageDraft([]);
+    firestoreSaveHomepageSections(INITIAL_HOMEPAGE_SECTIONS).catch(console.warn);
     try {
       localStorage.removeItem('zoodi_homepage_draft');
     } catch {
@@ -1516,6 +1697,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     const currentList = homepageDraft || homepageSections;
     const filtered = currentList.filter((s) => s.id !== sectionId);
     const reordered = filtered.map((s, idx) => ({ ...s, order: idx + 1, updatedAt: new Date().toISOString() }));
+    firestoreDeleteHomepageSection(sectionId).catch(console.warn);
     if (homepageDraft) {
       return saveHomepageDraft(reordered);
     } else {
@@ -1656,6 +1838,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     recordAudit('ORDER_STATUS_UPDATE', `Order ${orderId} moved to ${newStatus}`);
+    firestoreUpdateOrderStatus(orderId, newStatus, courierData, note).catch(console.warn);
     return { success: true };
   };
 
@@ -1709,7 +1892,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             }
             return v;
           });
-          return { ...p, variants: updatedVariants };
+          const updatedProduct = { ...p, variants: updatedVariants };
+          firestoreSaveProduct(updatedProduct).catch(console.warn);
+          return updatedProduct;
         }
         return p;
       })
@@ -1722,11 +1907,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       const exists = prev.some((c) => c.code === coupon.code);
       return exists ? prev.map((c) => (c.code === coupon.code ? coupon : c)) : [coupon, ...prev];
     });
+    firestoreSaveCoupon(coupon).catch(console.warn);
     recordAudit('COUPON_SAVED', `Configured coupon code: ${coupon.code}`);
   };
 
   const deleteCoupon = (code: string) => {
     setCoupons((prev) => prev.filter((c) => c.code !== code));
+    firestoreDeleteCoupon(code).catch(console.warn);
     recordAudit('COUPON_DELETED', `Deleted coupon: ${code}`);
   };
 

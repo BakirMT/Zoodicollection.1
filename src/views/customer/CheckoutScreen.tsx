@@ -40,6 +40,7 @@ export const CheckoutScreen: React.FC = () => {
     setGpayMerchantName,
     gpayUserEmail,
     gpayPhone,
+    isCustomerLoggedIn,
   } = useApp();
 
   const [selectedAddress, setSelectedAddress] = useState<Address>(
@@ -132,6 +133,10 @@ export const CheckoutScreen: React.FC = () => {
   };
 
   const handlePayAndPlaceOrder = async () => {
+    if (!isCustomerLoggedIn) {
+      setActiveScreen('login');
+      return;
+    }
     if (!isOnline) {
       setErrorMessage('No internet connection. Order placement requires an active online backend.');
       return;
@@ -311,6 +316,27 @@ export const CheckoutScreen: React.FC = () => {
       )}
 
       <div className="p-4 space-y-4">
+        {/* CUSTOMER LOGIN REQUIREMENT BANNER FOR GUESTS */}
+        {!isCustomerLoggedIn && (
+          <div className="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-amber-900 space-y-2 shadow-2xs">
+            <div className="flex items-center gap-2 font-bold text-xs">
+              <Lock className="w-4 h-4 text-amber-700 shrink-0" />
+              <span>Sign in required to complete order</span>
+            </div>
+            <p className="text-[11px] text-amber-800 leading-relaxed">
+              Connect your Google, Apple, or Email account to confirm your delivery address and receive real-time order & payment updates.
+            </p>
+            <button
+              type="button"
+              onClick={() => setActiveScreen('login')}
+              className="h-9 px-4 rounded-xl bg-[#192E4D] hover:bg-[#25426E] text-white font-bold text-xs flex items-center gap-1.5 transition-all shadow-xs cursor-pointer"
+            >
+              <span>Connect with Google / Apple / Email</span>
+              <ExternalLink className="w-3.5 h-3.5" />
+            </button>
+          </div>
+        )}
+
         {/* CONNECTED GOOGLE PAY SETTLEMENT ACCOUNT - ADMIN ONLY (STRICTLY HIDDEN FOR CUSTOMERS) */}
         {currentAdmin && (
           <div className="p-4 rounded-2xl bg-gradient-to-r from-[#192E4D] to-[#25426E] text-white shadow-sm space-y-2.5 border-2 border-amber-400/40">
@@ -753,6 +779,8 @@ export const CheckoutScreen: React.FC = () => {
               <Loader2 className="w-4 h-4 animate-spin" />
               <span>Verifying with Google Pay...</span>
             </>
+          ) : !isCustomerLoggedIn ? (
+            <span>Sign In with Google / Apple / Email to Order</span>
           ) : (
             <span>
               {paymentMethod === 'cod'

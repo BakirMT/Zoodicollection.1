@@ -14,6 +14,7 @@ export const CartScreen: React.FC = () => {
     removeCoupon,
     setActiveScreen,
     setCustomerTab,
+    isCustomerLoggedIn,
   } = useApp();
 
   const [inputCoupon, setInputCoupon] = useState('');
@@ -267,10 +268,16 @@ export const CartScreen: React.FC = () => {
           </div>
           <button
             type="button"
-            onClick={() => setActiveScreen('checkout')}
+            onClick={() => {
+              if (!isCustomerLoggedIn) {
+                setActiveScreen('login');
+              } else {
+                setActiveScreen('checkout');
+              }
+            }}
             className="flex-1 h-12 px-5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] active:scale-[0.98] text-white font-bold text-xs sm:text-sm flex items-center justify-center gap-2 shadow-md transition-all cursor-pointer"
           >
-            <span>Proceed to Checkout</span>
+            <span>{!isCustomerLoggedIn ? 'Sign In to Checkout' : 'Proceed to Checkout'}</span>
             <ArrowRight className="w-4 h-4" />
           </button>
         </div>

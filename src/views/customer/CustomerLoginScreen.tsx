@@ -12,11 +12,10 @@ import {
   ArrowRight,
   ShieldCheck,
   CheckCircle2,
-  Sparkles,
 } from 'lucide-react';
 
 export const CustomerLoginScreen: React.FC = () => {
-  const { customerLogin, setActiveScreen, setCustomerTab } = useApp();
+  const { customerLogin, setActiveScreen, setCustomerTab, cart } = useApp();
 
   const [mode, setMode] = useState<'signin' | 'signup'>('signin');
   const [email, setEmail] = useState('');
@@ -28,24 +27,21 @@ export const CustomerLoginScreen: React.FC = () => {
   const [isLoading, setIsLoading] = useState(false);
   const [authNotice, setAuthNotice] = useState<string | null>(null);
 
-  // Quick Demo One-Click Fill
-  const handleQuickDemo = (demoEmail: string, demoName: string) => {
-    setIsLoading(true);
-    setTimeout(() => {
-      customerLogin('email', demoEmail, demoName);
-      setIsLoading(false);
+  const navigateAfterAuth = () => {
+    if (cart.length > 0) {
+      setActiveScreen('checkout');
+    } else {
       setActiveScreen('tab');
       setCustomerTab('account');
-    }, 600);
+    }
   };
 
   const handleGoogleSignIn = () => {
     setIsLoading(true);
     setTimeout(() => {
-      customerLogin('google', 'bakirmannarkkad170@gmail.com', 'Bakir Mannarkkad');
+      customerLogin('google', 'user@gmail.com', 'Google User');
       setIsLoading(false);
-      setActiveScreen('tab');
-      setCustomerTab('account');
+      navigateAfterAuth();
     }, 700);
   };
 
@@ -54,8 +50,7 @@ export const CustomerLoginScreen: React.FC = () => {
     setTimeout(() => {
       customerLogin('apple', 'apple.user@icloud.com', 'Apple User');
       setIsLoading(false);
-      setActiveScreen('tab');
-      setCustomerTab('account');
+      navigateAfterAuth();
     }, 700);
   };
 
@@ -71,8 +66,7 @@ export const CustomerLoginScreen: React.FC = () => {
       const displayName = fullName.trim() || email.split('@')[0];
       customerLogin('email', email.trim(), displayName);
       setIsLoading(false);
-      setActiveScreen('tab');
-      setCustomerTab('account');
+      navigateAfterAuth();
     }, 700);
   };
 
@@ -325,21 +319,6 @@ export const CustomerLoginScreen: React.FC = () => {
               )}
             </button>
           </form>
-
-          {/* Quick Demo Login Preset for Test Drive */}
-          <div className="pt-2 border-t border-[#F0F4F8] space-y-2">
-            <span className="text-[10px] font-bold text-[#697586] uppercase tracking-wider block text-center">
-              One-Click Demo Account
-            </span>
-            <button
-              type="button"
-              onClick={() => handleQuickDemo('nihal.kerala@example.com', 'Muhammed Nihal')}
-              className="w-full h-9 px-3 rounded-lg bg-teal-50 hover:bg-teal-100/70 border border-teal-200 text-teal-800 text-xs font-bold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-            >
-              <Sparkles className="w-3.5 h-3.5 text-[#08A9A2]" />
-              <span>Quick Login: Muhammed Nihal (Mannarkkad, Kerala)</span>
-            </button>
-          </div>
         </div>
 
         {/* Security & Guarantee Note */}
