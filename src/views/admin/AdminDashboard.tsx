@@ -879,7 +879,9 @@ export const AdminDashboard: React.FC = () => {
                   {/* MOBILE VIEW (Smartphones & small screens): Dedicated cards with large tap targets */}
                   <div className="block sm:hidden space-y-3">
                     {products.map((p) => {
-                      const totalStock = p.variants.reduce((sum, v) => sum + v.stock, 0);
+                      const variants = p.variants || [];
+                      const totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+                      const primaryImg = variants[0]?.images?.[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
                       return (
                         <div
                           key={p.id}
@@ -887,7 +889,7 @@ export const AdminDashboard: React.FC = () => {
                         >
                           <div className="flex items-start gap-3">
                             <img
-                              src={p.variants[0]?.images[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80'}
+                              src={primaryImg}
                               alt={p.name}
                               className="w-16 h-16 object-cover rounded-xl border border-slate-100 shrink-0"
                             />
@@ -914,7 +916,7 @@ export const AdminDashboard: React.FC = () => {
                           {/* Color Variants Chips */}
                           <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none text-[11px] text-[#697586]">
                             <span className="font-bold text-[10px] uppercase text-slate-400">Colors:</span>
-                            {p.variants.map((v) => (
+                            {variants.map((v) => (
                               <span
                                 key={v.id}
                                 className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 shrink-0"
@@ -969,13 +971,15 @@ export const AdminDashboard: React.FC = () => {
                         </thead>
                         <tbody className="divide-y divide-[#F0F4F8]">
                           {products.map((p) => {
-                            const totalStock = p.variants.reduce((sum, v) => sum + v.stock, 0);
+                            const variants = p.variants || [];
+                            const totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
+                            const primaryImg = variants[0]?.images?.[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
                             return (
                               <tr key={p.id} className="hover:bg-[#FBFDFE]">
                                 <td className="p-3 font-bold text-[#192E4D]">
                                   <div className="flex items-center gap-2">
                                     <img
-                                      src={p.variants[0]?.images[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80'}
+                                      src={primaryImg}
                                       alt=""
                                       className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
                                     />
@@ -993,7 +997,7 @@ export const AdminDashboard: React.FC = () => {
                                 </td>
                                 <td className="p-3">
                                   <div className="flex flex-col gap-1">
-                                    {p.variants.map((v) => (
+                                    {variants.map((v) => (
                                       <div key={v.id} className="flex items-center gap-1.5">
                                         <span
                                           className="w-3 h-3 rounded-full border border-black/10 shrink-0"
@@ -1003,7 +1007,7 @@ export const AdminDashboard: React.FC = () => {
                                           {v.colorName}
                                         </span>
                                         <span className="text-[10px] text-[#697586]">
-                                          ({v.images.length} photos, {v.stock} pcs, SKU: {v.sku})
+                                          ({(v.images || []).length} photos, {v.stock} pcs, SKU: {v.sku})
                                         </span>
                                       </div>
                                     ))}

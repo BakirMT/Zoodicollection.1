@@ -32,30 +32,51 @@ export const ProductDetailScreen: React.FC = () => {
 
   const product = products.find((p) => p.id === selectedProductId) || products[0];
 
-  // Selected variant index (default to first variant, e.g. Crimson Red)
+  // Selected variant index (default to first variant)
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
-  const activeVariant = product.variants[selectedVariantIndex] || product.variants[0];
-
   // Selected gallery image index
   const [selectedImageIndex, setSelectedImageIndex] = useState(0);
-
   // Selected size
-  const [selectedSize, setSelectedSize] = useState<string>(
-    product.sizes[0] || 'M'
-  );
-
+  const [selectedSize, setSelectedSize] = useState<string>('M');
   // Quantity
   const [quantity, setQuantity] = useState(1);
-
   // Notification feedback
   const [feedbackMsg, setFeedbackMsg] = useState<{ type: 'success' | 'error'; text: string } | null>(null);
-
   // Review submission form
   const [showReviewModal, setShowReviewModal] = useState(false);
   const [newRating, setNewRating] = useState(5);
   const [newTitle, setNewTitle] = useState('');
   const [newComment, setNewComment] = useState('');
 
+  // Update selected size when product changes
+  useEffect(() => {
+    if (product && product.sizes && product.sizes.length > 0) {
+      setSelectedSize(product.sizes[0]);
+    }
+  }, [product?.id]);
+
+  if (!product) {
+    return (
+      <div className="flex flex-col items-center justify-center min-h-[60vh] px-4 text-center">
+        <div className="w-16 h-16 rounded-full bg-slate-100 flex items-center justify-center text-slate-400 mb-3">
+          <AlertCircle className="w-8 h-8" />
+        </div>
+        <h2 className="text-base font-bold text-[#192E4D] mb-1">Product Unavailable</h2>
+        <p className="text-xs text-[#697586] mb-4">This product has been removed or is currently unavailable in the catalog.</p>
+        <button
+          onClick={() => {
+            setActiveScreen('tab');
+            setCustomerTab('home');
+          }}
+          className="px-5 py-2.5 bg-[#192E4D] text-white text-xs font-bold rounded-xl shadow hover:bg-[#192E4D]/90 transition-all cursor-pointer"
+        >
+          Return to Catalog
+        </button>
+      </div>
+    );
+  }
+
+  const activeVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
   const isWishlisted = wishlistIds.includes(product.id);
   const originalPrice = product.price ?? activeVariant?.price ?? 0;
   const currentPrice =
@@ -70,8 +91,8 @@ export const ProductDetailScreen: React.FC = () => {
     : 0;
 
   // Variant size stock check
-  const sizeStockMap = activeVariant.sizeStock || {};
-  const currentSizeStock = sizeStockMap[selectedSize] !== undefined ? sizeStockMap[selectedSize] : activeVariant.stock;
+  const sizeStockMap = activeVariant?.sizeStock || {};
+  const currentSizeStock = sizeStockMap[selectedSize] !== undefined ? sizeStockMap[selectedSize] : (activeVariant?.stock ?? 0);
   const isAvailable = currentSizeStock > 0;
 
   // Handle color variant change
@@ -85,7 +106,7 @@ export const ProductDetailScreen: React.FC = () => {
   useEffect(() => {
     setSelectedVariantIndex(0);
     setSelectedImageIndex(0);
-    setSelectedSize(product.sizes[0] || 'M');
+    setSelectedSize(product.sizes?.[0] || 'M');
     setQuantity(1);
     setFeedbackMsg(null);
     window.scrollTo({ top: 0, behavior: 'smooth' });

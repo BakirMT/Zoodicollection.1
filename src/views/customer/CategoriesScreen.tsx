@@ -56,7 +56,7 @@ export const CategoriesScreen: React.FC = () => {
   });
 
   if (inStockOnly) {
-    filteredProducts = filteredProducts.filter((p) => p.variants.some((v) => v.stock > 0));
+    filteredProducts = filteredProducts.filter((p) => p.variants?.some((v) => v.stock > 0));
   }
 
   // Sort

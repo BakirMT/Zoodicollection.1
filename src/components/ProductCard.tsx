@@ -10,12 +10,14 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, compact = false }) => {
+  if (!product) return null;
+
   const { setSelectedProductId, setActiveScreen, wishlistIds, toggleWishlist, addToCart } = useApp();
 
   const isWishlisted = wishlistIds.includes(product.id);
-  const primaryVariant = product.variants[0];
+  const primaryVariant = product.variants?.[0];
   const primaryImage =
-    primaryVariant?.images[0] ||
+    primaryVariant?.images?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
 
   const originalPrice = product.price ?? primaryVariant?.price ?? 0;

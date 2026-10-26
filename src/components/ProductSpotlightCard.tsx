@@ -14,11 +14,13 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
   badgeLabel = 'Featured Product',
   onSelect,
 }) => {
+  if (!product) return null;
+
   const { setSelectedProductId, setActiveScreen, wishlistIds, toggleWishlist, addToCart } = useApp();
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
   const [justAdded, setJustAdded] = useState(false);
 
-  const activeVariant = product.variants[selectedVariantIndex] || product.variants[0];
+  const activeVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
   const activeImage =
     activeVariant?.images?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';

@@ -12,14 +12,14 @@ export const SearchModal: React.FC = () => {
   const filteredProducts = query.trim()
     ? products.filter(
         (p) =>
-          p.name.toLowerCase().includes(query.toLowerCase()) ||
-          p.brand.toLowerCase().includes(query.toLowerCase()) ||
-          p.description.toLowerCase().includes(query.toLowerCase()) ||
-          p.tags.some((t) => t.toLowerCase().includes(query.toLowerCase())) ||
-          p.variants.some(
+          p.name?.toLowerCase().includes(query.toLowerCase()) ||
+          p.brand?.toLowerCase().includes(query.toLowerCase()) ||
+          p.description?.toLowerCase().includes(query.toLowerCase()) ||
+          p.tags?.some((t) => t.toLowerCase().includes(query.toLowerCase())) ||
+          p.variants?.some(
             (v) =>
-              v.sku.toLowerCase().includes(query.toLowerCase()) ||
-              v.colorName.toLowerCase().includes(query.toLowerCase())
+              v.sku?.toLowerCase().includes(query.toLowerCase()) ||
+              v.colorName?.toLowerCase().includes(query.toLowerCase())
           )
       )
     : [];
