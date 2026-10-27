@@ -39,6 +39,15 @@ export interface Product {
   shippingEligible: boolean;
   returnEligible: boolean;
   createdAt: string;
+
+  // Detailed Product Specification Fields
+  style?: string;
+  fabric?: string;
+  gsm?: string;
+  ratio?: string;
+  accessories?: string;
+  packaging?: string;
+  customColors?: string;
 }
 
 export type CategoryDisplayMode = 'image' | 'text' | 'initial';

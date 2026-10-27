@@ -444,9 +444,70 @@ export const ProductDetailScreen: React.FC = () => {
           <h2 className="text-sm font-bold text-[#192E4D]">Product Description</h2>
           <p className="text-xs text-[#697586] leading-relaxed">{product.description}</p>
 
+          {/* Detailed Product Specifications */}
+          {(product.style || product.fabric || product.gsm || product.customColors || product.ratio || product.accessories || product.packaging || (product.sizes && product.sizes.length > 0)) && (
+            <div className="space-y-2 pt-2">
+              <h2 className="text-sm font-bold text-[#192E4D]">Product Specifications</h2>
+              <div className="divide-y divide-[#F0F4F8] border border-[#E6EAF0] rounded-2xl overflow-hidden text-xs bg-white shadow-2xs">
+                {product.style && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Style</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.style}</span>
+                  </div>
+                )}
+                {product.fabric && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Fabric</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.fabric}</span>
+                  </div>
+                )}
+                {product.gsm && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">GSM</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.gsm}</span>
+                  </div>
+                )}
+                {product.sizes && product.sizes.length > 0 && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Available Sizes</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.sizes.join(', ')}</span>
+                  </div>
+                )}
+                {(product.customColors || (product.variants && product.variants.length > 0)) && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Colors</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.customColors || product.variants.map((v) => v.colorName).join(', ')}</span>
+                  </div>
+                )}
+                {product.ratio && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Ratio</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.ratio}</span>
+                  </div>
+                )}
+                <div className="flex px-3.5 py-2.5">
+                  <span className="w-1/3 font-semibold text-[#697586]">Price</span>
+                  <span className="w-2/3 font-bold text-[#192E4D]">₹{Math.round(currentPrice).toLocaleString('en-IN')}</span>
+                </div>
+                {product.accessories && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Accessories Included</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.accessories}</span>
+                  </div>
+                )}
+                {product.packaging && (
+                  <div className="flex px-3.5 py-2.5">
+                    <span className="w-1/3 font-semibold text-[#697586]">Packaging Details</span>
+                    <span className="w-2/3 font-bold text-[#192E4D]">{product.packaging}</span>
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
           <h2 className="text-sm font-bold text-[#192E4D] pt-2">Technical Specifications</h2>
           <div className="divide-y divide-[#F0F4F8] border border-[#E6EAF0] rounded-2xl overflow-hidden text-xs">
-            {Object.entries(product.specifications).map(([key, value]) => (
+            {Object.entries(product.specifications || {}).map(([key, value]) => (
               <div key={key} className="flex px-3.5 py-2.5 bg-white">
                 <span className="w-1/3 font-semibold text-[#697586]">{key}</span>
                 <span className="w-2/3 font-bold text-[#192E4D]">{value}</span>

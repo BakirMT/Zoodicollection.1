@@ -98,9 +98,19 @@ export const AdminDashboard: React.FC = () => {
   const [pMainCat, setPMainCat] = useState('cat_fashion');
   const [pSubCat, setPSubCat] = useState('sub_men_fashion');
   const [pSubSubCat, setPSubSubCat] = useState('subsub_men_jackets');
-  const [pPrice, setPPrice] = useState(2499);
-  const [pSalePrice, setPSalePrice] = useState(1999);
+  const [pPrice, setPPrice] = useState(449);
+  const [pSalePrice, setPSalePrice] = useState(449);
   const [pVariants, setPVariants] = useState<ProductVariant[]>([]);
+
+  // Detailed Product Specification Fields
+  const [pStyle, setPStyle] = useState('MENS 5️⃣ SLEEVE T-SHIRT WITH PUFF PRINTED');
+  const [pFabric, setPFabric] = useState('SURPLUS LOOPNET FABRIC');
+  const [pGsm, setPGsm] = useState('200 GSM');
+  const [pRatio, setPRatio] = useState('10:10:10');
+  const [pAccessories, setPAccessories] = useState('Original Tag and Label');
+  const [pPackaging, setPPackaging] = useState('Single Piece Packed');
+  const [pCustomColors, setPCustomColors] = useState('MIX COLOUR ONLY');
+  const [pAvailableSizes, setPAvailableSizes] = useState<string[]>(['M', 'L', 'XL']);
 
   // Quick Category Add modal from Product Form
   const [showQuickCategoryModal, setShowQuickCategoryModal] = useState(false);
@@ -135,9 +145,18 @@ export const AdminDashboard: React.FC = () => {
 
   const openAddProductModal = () => {
     setEditingProduct(null);
-    setPName('');
+    setPName('MENS 5️⃣ SLEEVE T-SHIRT WITH PUFF PRINTED');
     setPBrand('ZOODI Collection');
-    setPDesc('');
+    setPDesc('Premium quality men\'s t-shirt with puff printed design and exceptional durability.');
+    setPStyle('MENS 5️⃣ SLEEVE T-SHIRT WITH PUFF PRINTED');
+    setPFabric('SURPLUS LOOPNET FABRIC');
+    setPGsm('200 GSM');
+    setPRatio('10:10:10');
+    setPAccessories('Original Tag and Label');
+    setPPackaging('Single Piece Packed');
+    setPCustomColors('MIX COLOUR ONLY');
+    setPAvailableSizes(['M', 'L', 'XL']);
+
     const defaultMain = mainCategories[0]?.id || 'cat_fashion';
     setPMainCat(defaultMain);
     const defaultSubs = subCategories.filter((s) => s.mainCategoryId === defaultMain);
@@ -145,33 +164,20 @@ export const AdminDashboard: React.FC = () => {
     setPSubCat(defaultSub);
     const defaultSubSubs = subSubCategories.filter((ss) => ss.subCategoryId === defaultSub);
     setPSubSubCat(defaultSubSubs[0]?.id || 'subsub_men_jackets');
-    setPPrice(149);
-    setPSalePrice(129);
+    setPPrice(449);
+    setPSalePrice(449);
     setPVariants([
       {
         id: `var_${Date.now()}_1`,
-        colorName: 'Crimson Red',
-        colorCode: '#D91E36',
-        sku: 'ZD-RED-01',
-        price: 149,
-        salePrice: 129,
-        stock: 24,
-        sizeStock: { S: 5, M: 8, L: 7, XL: 4 },
+        colorName: 'Mix Colour Only',
+        colorCode: '#192E4D',
+        sku: 'ZD-MIX-01',
+        price: 449,
+        salePrice: 449,
+        stock: 50,
+        sizeStock: { M: 15, L: 20, XL: 15 },
         images: [
           'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80',
-        ],
-      },
-      {
-        id: `var_${Date.now()}_2`,
-        colorName: 'Golden Mustard',
-        colorCode: '#FFB000',
-        sku: 'ZD-YEL-02',
-        price: 149,
-        salePrice: 129,
-        stock: 15,
-        sizeStock: { S: 4, M: 6, L: 5 },
-        images: [
-          'https://images.unsplash.com/photo-1578587018452-892bacefd3f2?auto=format&fit=crop&w=800&q=80',
         ],
       },
     ]);
@@ -183,6 +189,14 @@ export const AdminDashboard: React.FC = () => {
     setPName(product.name);
     setPBrand(product.brand);
     setPDesc(product.description);
+    setPStyle(product.style || 'MENS 5️⃣ SLEEVE T-SHIRT WITH PUFF PRINTED');
+    setPFabric(product.fabric || 'SURPLUS LOOPNET FABRIC');
+    setPGsm(product.gsm || '200 GSM');
+    setPRatio(product.ratio || '10:10:10');
+    setPAccessories(product.accessories || 'Original Tag and Label');
+    setPPackaging(product.packaging || 'Single Piece Packed');
+    setPCustomColors(product.customColors || 'MIX COLOUR ONLY');
+    setPAvailableSizes(product.sizes || ['M', 'L', 'XL']);
     setPMainCat(product.mainCategoryId);
     setPSubCat(product.subCategoryId || '');
     setPSubSubCat(product.subSubCategoryId || '');
@@ -568,15 +582,22 @@ export const AdminDashboard: React.FC = () => {
       trending: true,
       tags: ['apparel', 'fashion'],
       specifications: {
-        Material: 'Premium Quality Blend',
+        Material: pFabric || 'Premium Quality Blend',
         Care: 'Machine Wash Delicate',
       },
-      sizes: ['S', 'M', 'L', 'XL'],
+      sizes: pAvailableSizes.length > 0 ? pAvailableSizes : ['M', 'L', 'XL'],
       status: 'published',
       shippingEligible: true,
       returnEligible: true,
       createdAt: new Date().toISOString(),
       variants: finalVariants,
+      style: pStyle.trim() || undefined,
+      fabric: pFabric.trim() || undefined,
+      gsm: pGsm.trim() || undefined,
+      ratio: pRatio.trim() || undefined,
+      accessories: pAccessories.trim() || undefined,
+      packaging: pPackaging.trim() || undefined,
+      customColors: pCustomColors.trim() || undefined,
     };
 
     saveProduct(newProd);
@@ -2133,6 +2154,123 @@ export const AdminDashboard: React.FC = () => {
                           </option>
                         ))}
                     </select>
+                  </div>
+                </div>
+              </div>
+
+              {/* SECTION 2: PRODUCT DETAILS & SPECIFICATIONS */}
+              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-3">
+                <h4 className="font-extrabold text-[#192E4D] text-xs uppercase tracking-wider">
+                  Section 2: Product Details & Specifications
+                </h4>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Style</label>
+                    <input
+                      type="text"
+                      value={pStyle}
+                      onChange={(e) => setPStyle(e.target.value)}
+                      placeholder="e.g. MENS 5️⃣ SLEEVE T-SHIRT WITH PUFF PRINTED"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Fabric</label>
+                    <input
+                      type="text"
+                      value={pFabric}
+                      onChange={(e) => setPFabric(e.target.value)}
+                      placeholder="e.g. SURPLUS LOOPNET FABRIC"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">GSM</label>
+                    <input
+                      type="text"
+                      value={pGsm}
+                      onChange={(e) => setPGsm(e.target.value)}
+                      placeholder="e.g. 200 GSM"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Ratio</label>
+                    <input
+                      type="text"
+                      value={pRatio}
+                      onChange={(e) => setPRatio(e.target.value)}
+                      placeholder="e.g. 10:10:10"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Colors (e.g. Mix Colour Only)</label>
+                    <input
+                      type="text"
+                      value={pCustomColors}
+                      onChange={(e) => setPCustomColors(e.target.value)}
+                      placeholder="e.g. MIX COLOUR ONLY"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Available Sizes (M, L, XL)</label>
+                    <div className="flex items-center gap-2 mt-1">
+                      {['S', 'M', 'L', 'XL', 'XXL'].map((sz) => {
+                        const isChecked = pAvailableSizes.includes(sz);
+                        return (
+                          <button
+                            key={sz}
+                            type="button"
+                            onClick={() => {
+                              if (isChecked) {
+                                setPAvailableSizes(pAvailableSizes.filter((s) => s !== sz));
+                              } else {
+                                setPAvailableSizes([...pAvailableSizes, sz]);
+                              }
+                            }}
+                            className={`px-3 py-1.5 rounded-lg text-xs font-bold border transition-colors ${
+                              isChecked
+                                ? 'bg-[#08A9A2] text-white border-[#08A9A2]'
+                                : 'bg-white text-[#192E4D] border-[#E6EAF0]'
+                            }`}
+                          >
+                            {sz}
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                </div>
+
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-1">
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Accessories Included</label>
+                    <input
+                      type="text"
+                      value={pAccessories}
+                      onChange={(e) => setPAccessories(e.target.value)}
+                      placeholder="e.g. Original Tag and Label"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
+                  </div>
+
+                  <div>
+                    <label className="font-bold text-[#192E4D] block mb-1">Packaging Details</label>
+                    <input
+                      type="text"
+                      value={pPackaging}
+                      onChange={(e) => setPPackaging(e.target.value)}
+                      placeholder="e.g. Single Piece Packed"
+                      className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-semibold focus:outline-hidden focus:border-[#08A9A2]"
+                    />
                   </div>
                 </div>
               </div>
