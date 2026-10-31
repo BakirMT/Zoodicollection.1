@@ -119,21 +119,90 @@ export function isValidStatusTransition(current: OrderStatus, next: OrderStatus)
 }
 
 /**
- * Checks variant combination inventory availability.
+ * Generates a standardized combination SKU (e.g., ZD-001-BLK-M).
+ */
+export function formatCombinationSku(baseSku: string, colorName?: string, size?: string): string {
+  const cleanBase = (baseSku || 'ZD-001').trim().toUpperCase().replace(/\s+/g, '-');
+  const cleanColor =
+    colorName &&
+    colorName.trim() !== '' &&
+    !['default', 'standard', 'single unit', 'one size'].includes(colorName.trim().toLowerCase())
+      ? colorName
+          .trim()
+          .toUpperCase()
+          .replace(/[^A-Z0-9]/g, '')
+          .slice(0, 3)
+      : '';
+  const cleanSize =
+    size &&
+    size.trim() !== '' &&
+    !['default', 'standard', 'single unit', 'one size', 'none'].includes(size.trim().toLowerCase())
+      ? size
+          .trim()
+          .toUpperCase()
+          .replace(/\s+/g, '')
+      : '';
+
+  return [cleanBase, cleanColor, cleanSize].filter(Boolean).join('-');
+}
+
+/**
+ * Checks variant combination inventory availability (Colour + Size single source of truth).
  */
 export function checkVariantStock(
   variantStock: number,
   sizeStock?: Record<string, number>,
   selectedSize?: string,
-  requestedQuantity: number = 1
-): { isAvailable: boolean; remaining: number; message?: string } {
-  if (requestedQuantity <= 0) {
+  requestedQuantity: number = 1,
+  disabledSizes?: string[],
+  variantIsActive: boolean = true
+): { isAvailable: boolean; remaining: number; isDisabled?: boolean; message?: string } {
+  if (!variantIsActive) {
+    return {
+      isAvailable: false,
+      remaining: 0,
+      isDisabled: true,
+      message: 'This colour variant is currently unavailable',
+    };
+  }
+
+  if (requestedQuantity <= 0 || !Number.isInteger(requestedQuantity)) {
     return { isAvailable: false, remaining: 0, message: 'Invalid quantity requested' };
   }
 
-  let effectiveStock = variantStock;
-  if (selectedSize && sizeStock && sizeStock[selectedSize] !== undefined) {
-    effectiveStock = sizeStock[selectedSize];
+  const normalizedSize =
+    selectedSize &&
+    selectedSize !== 'One Size' &&
+    selectedSize !== 'Single Unit' &&
+    selectedSize !== 'default'
+      ? selectedSize
+      : undefined;
+
+  if (normalizedSize && disabledSizes && disabledSizes.includes(normalizedSize)) {
+    return {
+      isAvailable: false,
+      remaining: 0,
+      isDisabled: true,
+      message: `Size ${normalizedSize} is unavailable for this colour`,
+    };
+  }
+
+  let effectiveStock = Math.max(0, Math.floor(variantStock || 0));
+  if (sizeStock && Object.keys(sizeStock).length > 0) {
+    if (normalizedSize && sizeStock[normalizedSize] !== undefined) {
+      effectiveStock = Math.max(0, Math.floor(sizeStock[normalizedSize]));
+    } else if (!normalizedSize && sizeStock['Single Unit'] !== undefined) {
+      effectiveStock = Math.max(0, Math.floor(sizeStock['Single Unit']));
+    } else if (!normalizedSize && sizeStock['One Size'] !== undefined) {
+      effectiveStock = Math.max(0, Math.floor(sizeStock['One Size']));
+    } else if (!normalizedSize) {
+      // Derive from sum of active sizes
+      const disabledSet = new Set(disabledSizes || []);
+      effectiveStock = Object.entries(sizeStock).reduce((sum, [sz, qty]) => {
+        if (disabledSet.has(sz)) return sum;
+        return sum + Math.max(0, Math.floor(Number(qty) || 0));
+      }, 0);
+    }
   }
 
   if (effectiveStock <= 0) {
@@ -144,7 +213,7 @@ export function checkVariantStock(
     return {
       isAvailable: false,
       remaining: effectiveStock,
-      message: `Only ${effectiveStock} item(s) available in this size/color`,
+      message: `Only ${effectiveStock} unit(s) available in this colour/size combination`,
     };
   }
 

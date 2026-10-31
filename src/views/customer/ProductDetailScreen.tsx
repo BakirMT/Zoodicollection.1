@@ -110,21 +110,51 @@ export const ProductDetailScreen: React.FC = () => {
   const { currentPrice, originalPrice, hasDiscount, discountPercent } =
     getEffectiveProductPricing(product, activeVariant, selectedSize || undefined);
 
-  // Variant size stock check
+  // Variant size stock check (Colour + Size combination aware)
   const sizeStockMap = activeVariant?.sizeStock || {};
-  const currentSizeStock =
-    requiresSizeSelection && selectedSize
-      ? sizeStockMap[selectedSize] !== undefined
-        ? sizeStockMap[selectedSize]
-        : activeVariant?.stock ?? 0
-      : activeVariant?.stock ?? 0;
-  const isAvailable = currentSizeStock > 0;
+  const disabledSizesSet = new Set(activeVariant?.disabledSizes || []);
+  const isSizeDisabledForColor = (sz: string) => disabledSizesSet.has(sz);
+
+  const getSizeStockForColor = (sz: string) => {
+    if (isSizeDisabledForColor(sz)) return 0;
+    if (sizeStockMap[sz] !== undefined) {
+      return Math.max(0, Math.floor(Number(sizeStockMap[sz]) || 0));
+    }
+    return Math.max(0, Math.floor(Number(activeVariant?.stock) || 0));
+  };
+
+  const currentSizeStock = requiresSizeSelection
+    ? selectedSize
+      ? getSizeStockForColor(selectedSize)
+      : Math.max(0, Math.floor(Number(activeVariant?.stock) || 0))
+    : getSizeStockForColor('Single Unit');
+
+  const isAvailable = currentSizeStock > 0 && activeVariant?.isActive !== false;
+
+  const activeCombinationSku =
+    (requiresSizeSelection && selectedSize && activeVariant?.sizeSku?.[selectedSize]) ||
+    (!requiresSizeSelection && activeVariant?.sizeSku?.['Single Unit']) ||
+    activeVariant?.sku;
 
   // Handle color variant change
   const handleVariantChange = (index: number) => {
+    const nextVar = configuredVariants[index];
     setSelectedVariantIndex(index);
     setSelectedImageIndex(0);
     setFeedbackMsg(null);
+    if (nextVar && selectedSize) {
+      const nextDisabled = (nextVar.disabledSizes || []).includes(selectedSize);
+      const nextStock =
+        nextVar.sizeStock?.[selectedSize] !== undefined
+          ? nextVar.sizeStock[selectedSize]
+          : nextVar.stock ?? 0;
+      if (nextDisabled || nextStock <= 0) {
+        setSelectedSize('');
+        setQuantity(1);
+      } else if (quantity > nextStock) {
+        setQuantity(Math.max(1, nextStock));
+      }
+    }
   };
 
   // Similar products logic
@@ -336,9 +366,9 @@ export const ProductDetailScreen: React.FC = () => {
                 {product.brand}
               </span>
             )}
-            {activeVariant?.sku && (
+            {activeCombinationSku && (
               <span className="text-xs font-mono text-[#697586] bg-[#F6F8FA] px-2.5 py-1 rounded-md border border-[#E6EAF0] ml-auto">
-                SKU: {activeVariant.sku}
+                SKU: {activeCombinationSku}
               </span>
             )}
           </div>
@@ -390,20 +420,28 @@ export const ProductDetailScreen: React.FC = () => {
                     : 'Please select a color'}
                 </span>
               </span>
+              {selectedVariantIndex !== null && !requiresSizeSelection && (
+                <span className={`text-xs font-bold ${isAvailable ? 'text-emerald-700' : 'text-rose-600'}`}>
+                  {isAvailable ? `${currentSizeStock} in stock` : 'Out of stock'}
+                </span>
+              )}
             </div>
             <div className="w-fit px-2.5 py-1.5 rounded-full bg-[#F6F8FA] border border-[#E6EAF0] flex items-center gap-2 flex-wrap">
               {configuredVariants.map((v, idx) => {
                 const isSelected = idx === selectedVariantIndex;
+                const isColorSoldOut = (v.stock ?? 0) <= 0 || v.isActive === false;
                 return (
                   <button
                     key={v.id || idx}
                     type="button"
                     aria-label={`Color: ${v.colorName}`}
-                    title={v.colorName}
+                    title={isColorSoldOut ? `${v.colorName} (Out of Stock)` : v.colorName}
                     onClick={() => handleVariantChange(idx)}
                     className={`group relative w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0 cursor-pointer ${
                       isSelected
                         ? 'ring-2 ring-offset-1 ring-[#08A9A2] shadow-xs'
+                        : isColorSoldOut
+                        ? 'opacity-50 ring-1 ring-black/10'
                         : 'hover:scale-110 ring-1 ring-black/10'
                     }`}
                   >
@@ -470,7 +508,7 @@ export const ProductDetailScreen: React.FC = () => {
             <div className="flex items-center gap-2 flex-wrap">
               {product.sizes.map((size) => {
                 const isSelected = size === selectedSize;
-                const sizeStock = sizeStockMap[size] !== undefined ? sizeStockMap[size] : activeVariant?.stock ?? 0;
+                const sizeStock = getSizeStockForColor(size);
                 const hasStock = sizeStock > 0;
 
                 return (
@@ -480,6 +518,9 @@ export const ProductDetailScreen: React.FC = () => {
                     disabled={!hasStock}
                     onClick={() => {
                       setSelectedSize(size);
+                      if (quantity > sizeStock) {
+                        setQuantity(Math.max(1, sizeStock));
+                      }
                       setFeedbackMsg(null);
                     }}
                     className={`min-h-[44px] min-w-[52px] px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer ${
@@ -500,7 +541,14 @@ export const ProductDetailScreen: React.FC = () => {
 
         {/* QUANTITY PICKER with 40px touch buttons */}
         <div className="flex items-center justify-between pt-2 border-t border-[#F0F4F8]">
-          <span className="text-xs font-bold text-[#192E4D]">Quantity:</span>
+          <div className="flex items-center gap-2">
+            <span className="text-xs font-bold text-[#192E4D]">Quantity:</span>
+            {!requiresColorSelection && !requiresSizeSelection && (
+              <span className={`text-xs font-bold ${isAvailable ? 'text-emerald-700' : 'text-rose-600'}`}>
+                ({isAvailable ? `${currentSizeStock} in stock` : 'Out of stock'})
+              </span>
+            )}
+          </div>
           <div className="flex items-center border border-[#E6EAF0] rounded-xl overflow-hidden bg-white shadow-2xs">
             <button
               type="button"

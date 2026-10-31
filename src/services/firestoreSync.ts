@@ -8,6 +8,7 @@ import {
   onSnapshot,
   getDocs,
   writeBatch,
+  runTransaction,
   query,
   orderBy,
   limit,
@@ -15,6 +16,9 @@ import {
 import { db } from '../lib/firebase';
 import {
   Product,
+  ProductVariant,
+  VariantStockCombination,
+  CartItem,
   MainCategory,
   SubCategory,
   SubSubCategory,
@@ -26,6 +30,7 @@ import {
   SupportTicket,
   CategorySpecificationTemplate,
 } from '../types';
+import { formatCombinationSku, checkVariantStock } from '../lib/commerceLogic';
 import {
   INITIAL_PRODUCTS,
   INITIAL_MAIN_CATEGORIES,
@@ -119,7 +124,9 @@ export function sanitizeForFirestore<T>(value: T): T {
 }
 
 /**
- * Normalizes a raw Firestore document into a clean, consistent Product record.
+ * Normalizes a raw Firestore document into a clean, consistent Product record
+ * where Colour + Size combination inventory is the single source of truth
+ * and aggregate variant/product stock totals are derived automatically.
  */
 export function normalizeProductFromFirestore(raw: any, docId?: string): Product {
   const id = String(raw?.id || docId || `prod_${Date.now()}`);
@@ -140,61 +147,167 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
     ? raw.additionalImages.filter((img: any) => typeof img === 'string' && img.trim() !== '')
     : [];
 
-  const rawVariants = Array.isArray(raw?.variants) ? raw.variants : [];
-  const variants =
-    rawVariants.length > 0
-      ? rawVariants.map((v: any, idx: number) => {
-          const vPrice =
-            typeof v?.price === 'number' && !Number.isNaN(v.price) && v.price > 0
-              ? v.price
-              : price;
-          const rawVSale =
-            typeof v?.salePrice === 'number' && !Number.isNaN(v.salePrice)
-              ? v.salePrice
-              : Number(v?.salePrice);
-          const vSalePrice =
-            !Number.isNaN(rawVSale) && rawVSale > 0 && rawVSale < vPrice
-              ? rawVSale
-              : salePrice && salePrice < vPrice
-              ? salePrice
-              : undefined;
-          const vStock =
-            typeof v?.stock === 'number' && !Number.isNaN(v.stock)
-              ? Math.max(0, v.stock)
-              : Number(v?.stock) >= 0
-              ? Math.max(0, Number(v.stock))
-              : 0;
-          const vImages = Array.isArray(v?.images)
-            ? v.images.filter((img: any) => typeof img === 'string' && img.trim() !== '')
-            : [];
+  const sizes: string[] = Array.isArray(raw?.sizes)
+    ? raw.sizes.map((s: any) => String(s || '').trim()).filter(Boolean)
+    : [];
+  const variantType =
+    raw?.variantType || (sizes.length > 0 ? 'clothing_sizes' : 'none');
+  const effectiveSizes =
+    variantType !== 'none' && sizes.length > 0 ? sizes : ['Single Unit'];
 
-          return {
-            ...v,
-            id: String(v?.id || `${id}_var_${idx}`),
-            colorName: typeof v?.colorName === 'string' ? v.colorName : '',
-            colorCode: typeof v?.colorCode === 'string' && v.colorCode ? v.colorCode : '#192E4D',
-            images: vImages,
-            sku: typeof v?.sku === 'string' && v.sku ? v.sku : `SKU-${id.slice(-4).toUpperCase()}`,
-            price: vPrice,
-            salePrice: vSalePrice,
-            stock: vStock,
-            sizeStock:
-              v?.sizeStock && typeof v.sizeStock === 'object' ? v.sizeStock : undefined,
-          };
-        })
-      : [
-          {
-            id: `${id}_var_0`,
-            colorName: '',
-            colorCode: '#192E4D',
-            images: primaryImages,
-            sku: `SKU-${id.slice(-4).toUpperCase()}`,
-            price,
-            salePrice,
-            stock: 0,
-            attributes: { isUnconfiguredDefault: 'true' },
-          },
-        ];
+  const savedCombList: VariantStockCombination[] = Array.isArray(raw?.variantCombinations)
+    ? raw.variantCombinations
+    : [];
+
+  const rawVariants = Array.isArray(raw?.variants) && raw.variants.length > 0
+    ? raw.variants
+    : [
+        {
+          id: `${id}_var_0`,
+          colorName: '',
+          colorCode: '#192E4D',
+          images: primaryImages,
+          sku: `ZD-${id.slice(-4).toUpperCase()}`,
+          price,
+          salePrice,
+          stock: 0,
+          attributes: { isUnconfiguredDefault: 'true' },
+        },
+      ];
+
+  const allCombinations: VariantStockCombination[] = [];
+
+  const variants: ProductVariant[] = rawVariants.map((v: any, idx: number) => {
+    const vId = String(v?.id || `${id}_var_${idx}`);
+    const vColorName = typeof v?.colorName === 'string' ? v.colorName.trim() : '';
+    const vColorCode =
+      typeof v?.colorCode === 'string' && v.colorCode ? v.colorCode : '#192E4D';
+    const vBaseSku =
+      typeof v?.sku === 'string' && v.sku.trim()
+        ? v.sku.trim()
+        : `ZD-${id.slice(-4).toUpperCase()}`;
+    const vPrice =
+      typeof v?.price === 'number' && !Number.isNaN(v.price) && v.price > 0
+        ? v.price
+        : price;
+    const rawVSale =
+      typeof v?.salePrice === 'number' && !Number.isNaN(v.salePrice)
+        ? v.salePrice
+        : Number(v?.salePrice);
+    const vSalePrice =
+      !Number.isNaN(rawVSale) && rawVSale > 0 && rawVSale < vPrice
+        ? rawVSale
+        : salePrice && salePrice < vPrice
+        ? salePrice
+        : undefined;
+    const legacyStock =
+      typeof v?.stock === 'number' && !Number.isNaN(v.stock)
+        ? Math.max(0, Math.floor(v.stock))
+        : Number(v?.stock) >= 0
+        ? Math.max(0, Math.floor(Number(v.stock)))
+        : 0;
+    const vImages = Array.isArray(v?.images)
+      ? v.images.filter((img: any) => typeof img === 'string' && img.trim() !== '')
+      : [];
+
+    const existingSizeStock: Record<string, number> =
+      v?.sizeStock && typeof v.sizeStock === 'object' ? v.sizeStock : {};
+    const existingSizeSku: Record<string, string> =
+      v?.sizeSku && typeof v.sizeSku === 'object' ? v.sizeSku : {};
+    const existingDisabledSizes: Set<string> = new Set(
+      Array.isArray(v?.disabledSizes) ? v.disabledSizes.map(String) : []
+    );
+
+    const normalizedSizeStock: Record<string, number> = {};
+    const normalizedSizeSku: Record<string, string> = {};
+    const normalizedDisabledSizes: string[] = [];
+
+    // Migrate or preserve stock per size for this colour variant
+    const hasAnySavedSizeStock = Object.keys(existingSizeStock).length > 0;
+    const defaultPerSize =
+      !hasAnySavedSizeStock && effectiveSizes.length > 0
+        ? Math.floor(legacyStock / effectiveSizes.length)
+        : 0;
+    const remainder =
+      !hasAnySavedSizeStock && effectiveSizes.length > 0
+        ? legacyStock % effectiveSizes.length
+        : 0;
+
+    let derivedVariantStock = 0;
+
+    effectiveSizes.forEach((sz, sIdx) => {
+      const savedComb = savedCombList.find(
+        (c) =>
+          (c.colorId === vId ||
+            (vColorName && c.colorName?.toLowerCase() === vColorName.toLowerCase())) &&
+          c.size === sz
+      );
+
+      const isCombActive =
+        savedComb !== undefined
+          ? savedComb.isActive !== false
+          : !existingDisabledSizes.has(sz) && v?.isActive !== false;
+
+      let qty = 0;
+      if (savedComb !== undefined && typeof savedComb.stockQuantity === 'number') {
+        qty = Math.max(0, Math.floor(savedComb.stockQuantity));
+      } else if (existingSizeStock[sz] !== undefined) {
+        qty = Math.max(0, Math.floor(Number(existingSizeStock[sz]) || 0));
+      } else if (
+        sz === 'Single Unit' &&
+        existingSizeStock['One Size'] !== undefined
+      ) {
+        qty = Math.max(0, Math.floor(Number(existingSizeStock['One Size']) || 0));
+      } else if (!hasAnySavedSizeStock) {
+        qty = defaultPerSize + (sIdx === 0 ? remainder : 0);
+      }
+
+      const combSku =
+        (savedComb?.sku && savedComb.sku.trim()) ||
+        (existingSizeSku[sz] && existingSizeSku[sz].trim()) ||
+        formatCombinationSku(vBaseSku, vColorName, sz);
+
+      normalizedSizeStock[sz] = isCombActive ? qty : 0;
+      normalizedSizeSku[sz] = combSku;
+      if (!isCombActive) {
+        normalizedDisabledSizes.push(sz);
+      } else {
+        derivedVariantStock += qty;
+      }
+
+      allCombinations.push({
+        id: savedComb?.id || `${id}_${vId}_${sz.replace(/\s+/g, '_')}`,
+        colorId: vId,
+        colorName: vColorName || 'Standard',
+        colorCode: vColorCode,
+        size: sz,
+        sku: combSku,
+        stockQuantity: qty,
+        reservedQuantity: savedComb?.reservedQuantity || 0,
+        isActive: isCombActive,
+        price: vPrice,
+        salePrice: vSalePrice,
+      });
+    });
+
+    return {
+      ...v,
+      id: vId,
+      colorName: vColorName,
+      colorCode: vColorCode,
+      images: vImages,
+      sku: vBaseSku,
+      price: vPrice,
+      salePrice: vSalePrice,
+      stock: derivedVariantStock, // Strictly derived from Colour + Size combinations
+      sizeStock: normalizedSizeStock,
+      sizeSku: normalizedSizeSku,
+      disabledSizes: normalizedDisabledSizes.length > 0 ? normalizedDisabledSizes : undefined,
+      isActive: v?.isActive !== false,
+    };
+  });
+
+  const totalDerivedStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
 
   return {
     ...raw,
@@ -215,13 +328,15 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
     bestSeller: Boolean(raw?.bestSeller),
     tags: Array.isArray(raw?.tags) ? raw.tags : [],
     specifications: raw?.specifications && typeof raw.specifications === 'object' ? raw.specifications : {},
-    sizes: Array.isArray(raw?.sizes) ? raw.sizes : [],
-    variantType: raw?.variantType || 'none',
+    sizes,
+    variantType,
     status: raw?.status === 'draft' ? 'draft' : 'published',
     shippingEligible: raw?.shippingEligible !== false,
     returnEligible: raw?.returnEligible !== false,
     createdAt: raw?.createdAt || new Date().toISOString(),
     variants,
+    variantCombinations: allCombinations,
+    totalStock: totalDerivedStock,
     structuredSpecifications: Array.isArray(raw?.structuredSpecifications)
       ? raw.structuredSpecifications
       : [],
@@ -634,7 +749,8 @@ export async function firestoreUpdateOrderStatus(
   orderId: string,
   newStatus: OrderStatus,
   courierData?: { courier: string; trackingNumber: string; estimatedDelivery: string },
-  note?: string
+  note?: string,
+  stockRestored?: boolean
 ): Promise<void> {
   try {
     const orderRef = doc(db, FIRESTORE_COLLECTIONS.ORDERS, orderId);
@@ -647,10 +763,254 @@ export async function firestoreUpdateOrderStatus(
     if (note) {
       updates.notes = note;
     }
+    if (stockRestored !== undefined) {
+      updates.stockRestored = stockRestored;
+    }
     await updateDoc(orderRef, sanitizeForFirestore(updates));
   } catch (error) {
     console.error('[FirestoreSync] Error updating order status in Firestore:', error);
     throw error;
+  }
+}
+
+/**
+ * Atomically revalidates and deducts Colour + Size combination stock in Cloud Firestore
+ * using a Firestore transaction to prevent concurrent order overselling.
+ */
+export async function firestoreProcessOrderStockTransaction(
+  items: CartItem[],
+  fallbackProducts: Product[] = []
+): Promise<{ success: boolean; updatedProducts: Product[]; error?: string }> {
+  try {
+    const updatedProducts: Product[] = [];
+
+    await runTransaction(db, async (transaction) => {
+      // Group items by productId
+      const itemsByProduct = new Map<string, CartItem[]>();
+      for (const item of items) {
+        const list = itemsByProduct.get(item.productId) || [];
+        list.push(item);
+        itemsByProduct.set(item.productId, list);
+      }
+
+      // 1. Read all affected product documents first (Firestore transaction rule: all reads before writes)
+      const productSnaps = new Map<string, Product>();
+      for (const productId of itemsByProduct.keys()) {
+        const prodRef = doc(db, FIRESTORE_COLLECTIONS.PRODUCTS, productId);
+        const snap = await transaction.get(prodRef);
+        if (snap.exists()) {
+          productSnaps.set(productId, normalizeProductFromFirestore(snap.data(), snap.id));
+        } else {
+          const fallback = fallbackProducts.find((p) => p.id === productId);
+          if (!fallback) {
+            throw new Error(`Product (${productId}) no longer exists in the catalog.`);
+          }
+          productSnaps.set(productId, normalizeProductFromFirestore(fallback, fallback.id));
+        }
+      }
+
+      // 2. Validate and deduct each Colour + Size combination
+      for (const [productId, prodItems] of itemsByProduct.entries()) {
+        const currentProd = productSnaps.get(productId)!;
+        if (!isProductVisibleToCustomer(currentProd)) {
+          throw new Error(`"${currentProd.name}" is no longer available for purchase.`);
+        }
+
+        const nextVariants = currentProd.variants.map((v) => ({
+          ...v,
+          sizeStock: { ...(v.sizeStock || {}) },
+          sizeSku: { ...(v.sizeSku || {}) },
+          disabledSizes: v.disabledSizes ? [...v.disabledSizes] : undefined,
+        }));
+
+        for (const item of prodItems) {
+          const targetVar =
+            nextVariants.find((v) => v.id === item.variantId) || nextVariants[0];
+          if (!targetVar) {
+            throw new Error(`Variant for "${currentProd.name}" is unavailable.`);
+          }
+
+          const effectiveSizeKey =
+            item.size &&
+            item.size !== 'One Size' &&
+            item.size !== 'default' &&
+            targetVar.sizeStock[item.size] !== undefined
+              ? item.size
+              : targetVar.sizeStock['Single Unit'] !== undefined
+              ? 'Single Unit'
+              : item.size && item.size !== 'One Size' && item.size !== 'default'
+              ? item.size
+              : Object.keys(targetVar.sizeStock)[0] || 'Single Unit';
+
+          const check = checkVariantStock(
+            targetVar.stock,
+            targetVar.sizeStock,
+            effectiveSizeKey,
+            item.quantity,
+            targetVar.disabledSizes,
+            targetVar.isActive !== false
+          );
+
+          if (!check.isAvailable) {
+            throw new Error(
+              `${currentProd.name} (${targetVar.colorName || 'Standard'} / ${effectiveSizeKey}): ${
+                check.message || 'Insufficient stock'
+              }`
+            );
+          }
+
+          const currentCombStock =
+            targetVar.sizeStock[effectiveSizeKey] !== undefined
+              ? targetVar.sizeStock[effectiveSizeKey]
+              : targetVar.stock;
+          targetVar.sizeStock[effectiveSizeKey] = Math.max(0, currentCombStock - item.quantity);
+
+          // Re-derive variant total stock from active combinations
+          const disabledSet = new Set(targetVar.disabledSizes || []);
+          targetVar.stock = Object.entries(targetVar.sizeStock).reduce((sum, [sz, qty]) => {
+            if (disabledSet.has(sz)) return sum;
+            return sum + Math.max(0, Math.floor(Number(qty) || 0));
+          }, 0);
+        }
+
+        // Normalize and write back updated product inside transaction
+        const normalizedUpdated = normalizeProductFromFirestore(
+          {
+            ...currentProd,
+            variants: nextVariants,
+            variantCombinations: undefined, // Re-derived cleanly from variants.sizeStock & sizeSku
+            updatedAt: new Date().toISOString(),
+          },
+          currentProd.id
+        );
+
+        updatedProducts.push(normalizedUpdated);
+        const prodRef = doc(db, FIRESTORE_COLLECTIONS.PRODUCTS, productId);
+        transaction.set(
+          prodRef,
+          sanitizeForFirestore({
+            ...normalizedUpdated,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+    });
+
+    return { success: true, updatedProducts };
+  } catch (err: any) {
+    console.warn('[FirestoreSync] Stock transaction error:', err);
+    return {
+      success: false,
+      updatedProducts: [],
+      error: err?.message || 'Unable to reserve inventory for this order.',
+    };
+  }
+}
+
+/**
+ * Atomically restores Colour + Size combination stock in Cloud Firestore
+ * when an order is cancelled or refunded (if not already restored).
+ */
+export async function firestoreRestoreOrderStockTransaction(
+  order: Order,
+  fallbackProducts: Product[] = []
+): Promise<{ success: boolean; updatedProducts: Product[] }> {
+  try {
+    if (order.stockRestored) {
+      return { success: true, updatedProducts: [] };
+    }
+
+    const updatedProducts: Product[] = [];
+
+    await runTransaction(db, async (transaction) => {
+      const itemsByProduct = new Map<string, CartItem[]>();
+      for (const item of order.items) {
+        const list = itemsByProduct.get(item.productId) || [];
+        list.push(item);
+        itemsByProduct.set(item.productId, list);
+      }
+
+      const productSnaps = new Map<string, Product>();
+      for (const productId of itemsByProduct.keys()) {
+        const prodRef = doc(db, FIRESTORE_COLLECTIONS.PRODUCTS, productId);
+        const snap = await transaction.get(prodRef);
+        if (snap.exists()) {
+          productSnaps.set(productId, normalizeProductFromFirestore(snap.data(), snap.id));
+        } else {
+          const fallback = fallbackProducts.find((p) => p.id === productId);
+          if (fallback) {
+            productSnaps.set(productId, normalizeProductFromFirestore(fallback, fallback.id));
+          }
+        }
+      }
+
+      for (const [productId, prodItems] of itemsByProduct.entries()) {
+        const currentProd = productSnaps.get(productId);
+        if (!currentProd) continue;
+
+        const nextVariants = currentProd.variants.map((v) => ({
+          ...v,
+          sizeStock: { ...(v.sizeStock || {}) },
+          sizeSku: { ...(v.sizeSku || {}) },
+          disabledSizes: v.disabledSizes ? [...v.disabledSizes] : undefined,
+        }));
+
+        for (const item of prodItems) {
+          const targetVar =
+            nextVariants.find((v) => v.id === item.variantId) || nextVariants[0];
+          if (!targetVar) continue;
+
+          const effectiveSizeKey =
+            item.size &&
+            item.size !== 'One Size' &&
+            item.size !== 'default' &&
+            targetVar.sizeStock[item.size] !== undefined
+              ? item.size
+              : targetVar.sizeStock['Single Unit'] !== undefined
+              ? 'Single Unit'
+              : item.size && item.size !== 'One Size' && item.size !== 'default'
+              ? item.size
+              : Object.keys(targetVar.sizeStock)[0] || 'Single Unit';
+
+          const currentCombStock =
+            targetVar.sizeStock[effectiveSizeKey] !== undefined
+              ? targetVar.sizeStock[effectiveSizeKey]
+              : 0;
+          targetVar.sizeStock[effectiveSizeKey] = Math.max(0, currentCombStock + item.quantity);
+
+          const disabledSet = new Set(targetVar.disabledSizes || []);
+          targetVar.stock = Object.entries(targetVar.sizeStock).reduce((sum, [sz, qty]) => {
+            if (disabledSet.has(sz)) return sum;
+            return sum + Math.max(0, Math.floor(Number(qty) || 0));
+          }, 0);
+        }
+
+        const normalizedUpdated = normalizeProductFromFirestore(
+          {
+            ...currentProd,
+            variants: nextVariants,
+            variantCombinations: undefined,
+            updatedAt: new Date().toISOString(),
+          },
+          currentProd.id
+        );
+
+        updatedProducts.push(normalizedUpdated);
+        const prodRef = doc(db, FIRESTORE_COLLECTIONS.PRODUCTS, productId);
+        transaction.set(
+          prodRef,
+          sanitizeForFirestore({
+            ...normalizedUpdated,
+            updatedAt: new Date().toISOString(),
+          })
+        );
+      }
+    });
+
+    return { success: true, updatedProducts };
+  } catch (err) {
+    console.warn('[FirestoreSync] Error restoring order stock:', err);
+    return { success: false, updatedProducts: [] };
   }
 }
 

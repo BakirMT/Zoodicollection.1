@@ -5,8 +5,10 @@ import {
   ProductVariant,
   StructuredSpecification,
   VariantOptionType,
+  VariantStockCombination,
 } from '../../types';
 import { getCategoryTemplate, getDefaultSizesForVariantType } from '../../data/categoryTemplates';
+import { formatCombinationSku } from '../../lib/commerceLogic';
 import { CategoryLevel, CategoryModal } from './CategoryModal';
 import {
   X,
@@ -41,6 +43,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     subSubCategories,
     saveProduct,
     categoryTemplates,
+    orders,
   } = useApp();
 
   // Active section tab (1 to 10)
@@ -79,7 +82,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [customSizeInput, setCustomSizeInput] = useState('');
   const [pVariants, setPVariants] = useState<ProductVariant[]>([]);
 
-  // Color variant sub-modal
+  // Colour + Size combination inventory state keyed by `${colorId}__${sizeKey}`
+  const [combinationInventory, setCombinationInventory] = useState<
+    Record<string, { sku: string; stockQuantity: string; isActive: boolean }>
+  >({});
+  const [bulkStockFillInput, setBulkStockFillInput] = useState<string>('');
+  const [pendingRemovalWarning, setPendingRemovalWarning] = useState<{
+    message: string;
+    onConfirm: () => void;
+  } | null>(null);
+
+  // Color variant sub-modal (Colour Name, Swatch, Optional Price/SKU, and Colour Images — Stock is managed in the Colour + Size table)
   const [showColorModal, setShowColorModal] = useState(false);
   const [editingVariantIndex, setEditingVariantIndex] = useState<number | null>(null);
   const [vColorName, setVColorName] = useState('');
@@ -87,7 +100,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [vSku, setVSku] = useState('');
   const [vPrice, setVPrice] = useState<string>('');
   const [vSalePrice, setVSalePrice] = useState<string>('');
-  const [vStock, setVStock] = useState<string>('');
   const [vImages, setVImages] = useState<string[]>([]);
   const [vImageUrlInput, setVImageUrlInput] = useState('');
   const [colorModalError, setColorModalError] = useState<string | null>(null);
@@ -115,10 +127,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [newCustomValue, setNewCustomValue] = useState('');
   const [newCustomUnit, setNewCustomUnit] = useState('');
 
-  // SECTION 7: PRICING & INVENTORY (Blank by default for new products)
+  // SECTION 7: PRICING (Blank by default for new products; inventory is derived from Colour + Size combinations)
   const [pPrice, setPPrice] = useState<string>('');
   const [pSalePrice, setPSalePrice] = useState<string>('');
-  const [pBaseStock, setPBaseStock] = useState<string>('');
 
   // SECTION 8: SHIPPING & PACKAGING
   const [pShippingEligible, setPShippingEligible] = useState(true);
@@ -137,6 +148,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setValidationError(null);
     setCategoryChangeWarning(null);
     setPendingMainCat(null);
+    setPendingRemovalWarning(null);
 
     // Section 1: Blank
     setPName('');
@@ -162,6 +174,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setCustomCandidateSizes([]);
     setCustomSizeInput('');
     setPVariants([]);
+    setCombinationInventory({});
+    setBulkStockFillInput('');
     setShowColorModal(false);
     setEditingVariantIndex(null);
     setVColorName('');
@@ -169,7 +183,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setVSku('');
     setVPrice('');
     setVSalePrice('');
-    setVStock('');
     setVImages([]);
     setVImageUrlInput('');
     setColorModalError(null);
@@ -195,10 +208,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setNewCustomValue('');
     setNewCustomUnit('');
 
-    // Section 7: Pricing & Stock blank
+    // Section 7: Pricing blank
     setPPrice('');
     setPSalePrice('');
-    setPBaseStock('');
 
     // Section 8 & 9: Clean defaults
     setPShippingEligible(true);
@@ -219,6 +231,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setValidationError(null);
       setCategoryChangeWarning(null);
       setPendingMainCat(null);
+      setPendingRemovalWarning(null);
+      setBulkStockFillInput('');
 
       setPName(editingProduct.name || '');
       setPBrand(editingProduct.brand || '');
@@ -236,13 +250,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         (v) =>
           v.attributes?.isUnconfiguredDefault !== 'true' &&
           v.colorName &&
-          v.colorName.trim() !== ''
+          v.colorName.trim() !== '' &&
+          v.colorName.trim() !== 'Standard'
       );
       setPVariants(configuredVariants.map((v) => ({ ...v })));
 
       const firstVar = editingProduct.variants?.[0];
       setPSku(firstVar?.sku || '');
-      setPBaseStock(firstVar?.stock !== undefined ? String(firstVar.stock) : '');
       setPPrimaryImage(firstVar?.images?.[0] || '');
       setPAdditionalImages(
         editingProduct.additionalImages || (firstVar?.images ? firstVar.images.slice(1) : [])
@@ -250,10 +264,73 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setPSizeChartImage(editingProduct.sizeChartImage || '');
       setPCareImage(editingProduct.careImage || '');
 
-      setVariantType(editingProduct.variantType || 'clothing_sizes');
-      setPAvailableSizes(editingProduct.sizes ? [...editingProduct.sizes] : []);
-      setCustomCandidateSizes(editingProduct.sizes ? [...editingProduct.sizes] : []);
+      const loadedVariantType = editingProduct.variantType || 'clothing_sizes';
+      const loadedSizes = editingProduct.sizes ? [...editingProduct.sizes] : [];
+      setVariantType(loadedVariantType);
+      setPAvailableSizes(loadedSizes);
+      setCustomCandidateSizes(loadedSizes);
       setCustomSizeInput('');
+
+      // Load Colour + Size combination inventory from existing product variants & variantCombinations
+      const initialComboMap: Record<
+        string,
+        { sku: string; stockQuantity: string; isActive: boolean }
+      > = {};
+      const effectiveSizeKeys =
+        loadedVariantType === 'none' || loadedSizes.length === 0 ? ['Single Unit'] : loadedSizes;
+
+      if (configuredVariants.length > 0) {
+        configuredVariants.forEach((v) => {
+          const disabledSet = new Set(v.disabledSizes || []);
+          effectiveSizeKeys.forEach((sz) => {
+            const comboKey = `${v.id}__${sz}`;
+            const rawQty =
+              v.sizeStock && v.sizeStock[sz] !== undefined
+                ? v.sizeStock[sz]
+                : effectiveSizeKeys.length === 1
+                ? v.stock ?? 0
+                : 0;
+            const existingSku =
+              v.sizeSku?.[sz] ||
+              formatCombinationSku(
+                v.sku || firstVar?.sku || editingProduct.id,
+                v.colorName,
+                sz
+              );
+            initialComboMap[comboKey] = {
+              sku: existingSku,
+              stockQuantity: String(Math.max(0, Math.floor(Number(rawQty) || 0))),
+              isActive: !disabledSet.has(sz) && v.isActive !== false,
+            };
+          });
+        });
+      } else if (firstVar) {
+        const disabledSet = new Set(firstVar.disabledSizes || []);
+        const defaultColorLabel =
+          editingProduct.customColors || firstVar.colorName || 'Standard';
+        effectiveSizeKeys.forEach((sz) => {
+          const comboKey = `default_color__${sz}`;
+          const rawQty =
+            firstVar.sizeStock && firstVar.sizeStock[sz] !== undefined
+              ? firstVar.sizeStock[sz]
+              : effectiveSizeKeys.length === 1
+              ? firstVar.stock ?? 0
+              : 0;
+          const existingSku =
+            firstVar.sizeSku?.[sz] ||
+            formatCombinationSku(
+              firstVar.sku || editingProduct.id,
+              defaultColorLabel,
+              sz
+            );
+          initialComboMap[comboKey] = {
+            sku: existingSku,
+            stockQuantity: String(Math.max(0, Math.floor(Number(rawQty) || 0))),
+            isActive: !disabledSet.has(sz) && firstVar.isActive !== false,
+          };
+        });
+      }
+      setCombinationInventory(initialComboMap);
 
       // Saved specification fields
       setPStyle(editingProduct.style || '');
@@ -317,9 +394,142 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     ])
   );
 
+  // Active Colour & Size axes for dynamic Colour + Size combination generation
+  const effectiveColorEntries =
+    pVariants.length > 0
+      ? pVariants.map((v) => ({
+          id: v.id,
+          colorName: v.colorName,
+          colorCode: v.colorCode,
+          baseSku: v.sku || pSku.trim() || editingProduct?.id || 'ZD-001',
+        }))
+      : [
+          {
+            id: 'default_color',
+            colorName: pCustomColors.trim() || 'Standard',
+            colorCode: '#192E4D',
+            baseSku: pSku.trim() || editingProduct?.id || 'ZD-001',
+          },
+        ];
+
+  const effectiveSizeEntries =
+    variantType === 'none' ? ['Single Unit'] : pAvailableSizes;
+
+  // Build live Colour + Size rows while preserving all existing combination inventory & SKUs
+  const activeCombinationRows = effectiveColorEntries.flatMap((c) =>
+    effectiveSizeEntries.map((sz) => {
+      const comboKey = `${c.id}__${sz}`;
+      const existing = combinationInventory[comboKey];
+      const suggestedSku = formatCombinationSku(c.baseSku, c.colorName, sz);
+      const rawQtyStr = existing ? existing.stockQuantity : '';
+      const parsedQty =
+        rawQtyStr.trim() === '' ? 0 : Math.max(0, Math.floor(Number(rawQtyStr) || 0));
+      const isActive = existing ? existing.isActive : true;
+      return {
+        comboKey,
+        colorId: c.id,
+        colorName: c.colorName,
+        colorCode: c.colorCode,
+        size: sz,
+        sku: existing?.sku !== undefined ? existing.sku : suggestedSku,
+        stockQuantityStr: rawQtyStr,
+        stockQuantityNum: isActive ? parsedQty : 0,
+        rawStockQuantityNum: parsedQty,
+        isActive,
+      };
+    })
+  );
+
+  const derivedTotalStock = activeCombinationRows.reduce(
+    (sum, row) => sum + (row.isActive ? row.stockQuantityNum : 0),
+    0
+  );
+
+  const updateCombinationCell = (
+    comboKey: string,
+    defaultSku: string,
+    patch: Partial<{ sku: string; stockQuantity: string; isActive: boolean }>
+  ) => {
+    setCombinationInventory((prev) => {
+      const current = prev[comboKey] || {
+        sku: defaultSku,
+        stockQuantity: '',
+        isActive: true,
+      };
+      return {
+        ...prev,
+        [comboKey]: {
+          ...current,
+          ...patch,
+        },
+      };
+    });
+  };
+
+  const handleApplyBulkStockToActiveRows = () => {
+    const parsed = parseInt(bulkStockFillInput, 10);
+    if (Number.isNaN(parsed) || parsed < 0) {
+      setValidationError('Please enter a valid non-negative whole number to apply to active combinations.');
+      return;
+    }
+    setValidationError(null);
+    setCombinationInventory((prev) => {
+      const next = { ...prev };
+      activeCombinationRows.forEach((row) => {
+        const current = next[row.comboKey] || {
+          sku: row.sku,
+          stockQuantity: '',
+          isActive: true,
+        };
+        if (current.isActive) {
+          next[row.comboKey] = {
+            ...current,
+            stockQuantity: String(parsed),
+          };
+        }
+      });
+      return next;
+    });
+  };
+
+  const hasOrderHistoryForSize = (size: string): boolean => {
+    if (!editingProduct) return false;
+    return orders.some((o) =>
+      o.items.some((item) => item.productId === editingProduct.id && item.size === size)
+    );
+  };
+
+  const hasOrderHistoryForVariant = (variantId: string): boolean => {
+    if (!editingProduct) return false;
+    return orders.some((o) =>
+      o.items.some((item) => item.productId === editingProduct.id && item.variantId === variantId)
+    );
+  };
+
   const toggleSizeSelection = (size: string) => {
     setValidationError(null);
+    setPendingRemovalWarning(null);
     if (pAvailableSizes.includes(size)) {
+      // Check if this size currently has inventory > 0 or order history
+      const sizeStockTotal = effectiveColorEntries.reduce((sum, c) => {
+        const entry = combinationInventory[`${c.id}__${size}`];
+        const qty = entry ? Math.max(0, Math.floor(Number(entry.stockQuantity) || 0)) : 0;
+        return sum + qty;
+      }, 0);
+      const hasOrders = hasOrderHistoryForSize(size);
+
+      if (sizeStockTotal > 0 || hasOrders) {
+        setPendingRemovalWarning({
+          message: `Size "${size}" currently has ${sizeStockTotal} unit(s) in stock${
+            hasOrders ? ' and existing customer order history' : ''
+          }. Removing this size will remove its Colour + Size inventory rows from this product.`,
+          onConfirm: () => {
+            setPAvailableSizes((prev) => prev.filter((s) => s !== size));
+            setPendingRemovalWarning(null);
+          },
+        });
+        return;
+      }
       setPAvailableSizes(pAvailableSizes.filter((s) => s !== size));
     } else {
       setPAvailableSizes([...pAvailableSizes, size]);
@@ -382,7 +592,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }
   };
 
-  // Color variant helpers
+  // Color variant helpers (Stock is managed in the Colour + Size table, not duplicated here)
   const openAddColorModal = () => {
     setEditingVariantIndex(null);
     setVColorName('');
@@ -390,7 +600,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setVSku('');
     setVPrice(pPrice || '');
     setVSalePrice(pSalePrice || '');
-    setVStock(pBaseStock || '');
     setVImages([]);
     setVImageUrlInput('');
     setColorModalError(null);
@@ -406,7 +615,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setVSku(v.sku || '');
     setVPrice(v.price !== undefined ? String(v.price) : '');
     setVSalePrice(v.salePrice !== undefined ? String(v.salePrice) : '');
-    setVStock(v.stock !== undefined ? String(v.stock) : '');
     setVImages([...(v.images || [])]);
     setVImageUrlInput('');
     setColorModalError(null);
@@ -414,36 +622,67 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   };
 
   const handleSaveColorVariant = () => {
-    if (!vColorName.trim()) {
-      setColorModalError('Please enter a color / variant name.');
+    const trimmedName = vColorName.trim();
+    if (!trimmedName) {
+      setColorModalError('Please enter a colour / variant name.');
       return;
     }
+
+    // Prevent duplicate colour names
+    const duplicateExists = pVariants.some(
+      (v, idx) =>
+        idx !== editingVariantIndex &&
+        v.colorName.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (duplicateExists) {
+      setColorModalError(`A colour variant named "${trimmedName}" already exists for this product.`);
+      return;
+    }
+
     const parsedPrice = parseFloat(vPrice) || parseFloat(pPrice) || 0;
     const parsedSalePrice = parseFloat(vSalePrice) || parseFloat(pSalePrice) || undefined;
-    const parsedStock = parseInt(vStock, 10);
-    const finalStock = Number.isNaN(parsedStock) ? parseInt(pBaseStock, 10) || 10 : parsedStock;
+    const variantId =
+      editingVariantIndex !== null
+        ? pVariants[editingVariantIndex].id
+        : `var_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
+    const baseVariantSku =
+      vSku.trim() || pSku.trim() || `ZD-${Date.now().toString().slice(-4)}`;
 
-    // Distribute stock across manually selected sizes if any
-    const sizeStockMap: Record<string, number> = {};
-    if (pAvailableSizes.length > 0) {
-      const perSize = Math.max(1, Math.floor(finalStock / pAvailableSizes.length));
-      pAvailableSizes.forEach((sz) => {
-        sizeStockMap[sz] = perSize;
+    // Calculate current derived stock for this colour from combinationInventory
+    const currentSizes = variantType === 'none' ? ['Single Unit'] : pAvailableSizes;
+    const derivedColorStock = currentSizes.reduce((acc, sz) => {
+      const entry = combinationInventory[`${variantId}__${sz}`];
+      if (!entry || !entry.isActive) return acc;
+      return acc + Math.max(0, Math.floor(Number(entry.stockQuantity) || 0));
+    }, 0);
+
+    // If this is the very first colour variant added and user had entered stock under default_color, migrate those rows to this colour
+    if (editingVariantIndex === null && pVariants.length === 0) {
+      setCombinationInventory((prev) => {
+        const next = { ...prev };
+        currentSizes.forEach((sz) => {
+          const defaultEntry = next[`default_color__${sz}`];
+          const newKey = `${variantId}__${sz}`;
+          if (defaultEntry && !next[newKey]) {
+            next[newKey] = {
+              sku: formatCombinationSku(baseVariantSku, trimmedName, sz),
+              stockQuantity: defaultEntry.stockQuantity,
+              isActive: defaultEntry.isActive,
+            };
+          }
+        });
+        return next;
       });
     }
 
     const updatedVariant: ProductVariant = {
-      id:
-        editingVariantIndex !== null
-          ? pVariants[editingVariantIndex].id
-          : `var_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-      colorName: vColorName.trim(),
+      id: variantId,
+      colorName: trimmedName,
       colorCode: vColorCode,
-      sku: vSku.trim() || pSku.trim() || `ZD-${Date.now().toString().slice(-4)}`,
+      sku: baseVariantSku,
       price: parsedPrice,
       salePrice: parsedSalePrice,
-      stock: finalStock,
-      sizeStock: pAvailableSizes.length > 0 ? sizeStockMap : undefined,
+      stock: derivedColorStock,
       images: vImages.length > 0 ? vImages : pPrimaryImage.trim() ? [pPrimaryImage.trim()] : [],
     };
 
@@ -458,6 +697,30 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   };
 
   const handleDeleteVariant = (idx: number) => {
+    const targetVar = pVariants[idx];
+    if (!targetVar) return;
+    setPendingRemovalWarning(null);
+
+    const varStockTotal = effectiveSizeEntries.reduce((sum, sz) => {
+      const entry = combinationInventory[`${targetVar.id}__${sz}`];
+      const qty = entry ? Math.max(0, Math.floor(Number(entry.stockQuantity) || 0)) : 0;
+      return sum + qty;
+    }, 0);
+    const hasOrders = hasOrderHistoryForVariant(targetVar.id);
+
+    if (varStockTotal > 0 || hasOrders) {
+      setPendingRemovalWarning({
+        message: `Colour variant "${targetVar.colorName}" currently has ${varStockTotal} unit(s) in stock${
+          hasOrders ? ' and existing customer order history' : ''
+        }. Removing this colour will remove all of its Colour + Size inventory combinations.`,
+        onConfirm: () => {
+          setPVariants((prev) => prev.filter((_, i) => i !== idx));
+          setPendingRemovalWarning(null);
+        },
+      });
+      return;
+    }
+
     setPVariants(pVariants.filter((_, i) => i !== idx));
   };
 
@@ -571,8 +834,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         ? numericSalePrice
         : undefined;
 
-    const numericStock = parseInt(pBaseStock, 10);
-    const validStock = !Number.isNaN(numericStock) && numericStock >= 0 ? numericStock : 20;
+    // 7. Validate Colour + Size combination stock quantities (must be non-negative whole numbers)
+    for (const row of activeCombinationRows) {
+      if (row.stockQuantityStr.trim() !== '') {
+        const num = Number(row.stockQuantityStr);
+        if (Number.isNaN(num) || num < 0 || !Number.isInteger(num)) {
+          setValidationError(
+            `Invalid stock quantity for ${row.colorName} / ${row.size} in Section 4. Stock must be a non-negative whole number (0 or greater).`
+          );
+          setActiveSection(4);
+          return;
+        }
+      }
+    }
 
     // Build structured specifications array ONLY from non-empty template fields + custom fields
     const finalStructuredSpecs: StructuredSpecification[] = [];
@@ -606,30 +880,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     // Final sizes: strictly what the admin manually selected (never auto-filled!)
     const finalSizes = variantType === 'none' ? [] : [...pAvailableSizes];
-
-    // Build sizeStock map for variants (accurately reflects updated stock, including 0 stock)
-    const buildSizeStock = (
-      totalStock: number,
-      existingSizeStock?: Record<string, number>,
-      forceRecalculate?: boolean
-    ) => {
-      if (finalSizes.length === 0) return undefined;
-      const map: Record<string, number> = {};
-      if (totalStock <= 0) {
-        finalSizes.forEach((sz) => {
-          map[sz] = 0;
-        });
-        return map;
-      }
-      const perSize = Math.max(1, Math.floor(totalStock / finalSizes.length));
-      finalSizes.forEach((sz) => {
-        map[sz] =
-          !forceRecalculate && existingSizeStock && existingSizeStock[sz] !== undefined
-            ? existingSizeStock[sz]
-            : perSize;
-      });
-      return map;
-    };
+    const sizeKeysForInventory = finalSizes.length > 0 ? finalSizes : ['Single Unit'];
 
     const allProductImages = [
       ...(pPrimaryImage.trim() ? [pPrimaryImage.trim()] : []),
@@ -638,25 +889,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     const previousBasePrice = editingProduct?.price;
     const previousSalePrice = editingProduct?.salePrice;
-    const previousFirstStock = editingProduct?.variants?.[0]?.stock;
-    const baseStockChanged =
-      editingProduct !== null &&
-      previousFirstStock !== undefined &&
-      validStock !== previousFirstStock;
+    const productId = editingProduct ? editingProduct.id : `prod_${Date.now()}`;
 
-    // Prepare variants:
-    // If admin explicitly added color variants or entered pCustomColors, use those.
-    // Otherwise create an internal carrier variant marked isUnconfiguredDefault: 'true' so the storefront does NOT show a fake color swatch.
+    const builtCombinations: VariantStockCombination[] = [];
+
+    // Prepare variants and their Colour + Size combination stock maps
     const finalVariants: ProductVariant[] =
       pVariants.length > 0
         ? pVariants.map((v, idx) => {
-            // Update variant price if it matched the old base price or wasn't overridden
             const effectiveVarPrice =
               !v.price || v.price <= 0 || (previousBasePrice !== undefined && v.price === previousBasePrice)
                 ? numericPrice
                 : v.price;
 
-            // Update variant salePrice if product salePrice was updated or cleared
             const effectiveVarSalePrice =
               validSalePrice !== undefined && validSalePrice < effectiveVarPrice
                 ? validSalePrice
@@ -668,15 +913,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 ? v.salePrice
                 : undefined;
 
-            // Update variant stock if base stock in Section 7 was edited
-            const effectiveVarStock =
-              baseStockChanged && (idx === 0 || pVariants.length === 1)
-                ? validStock
-                : v.stock >= 0
-                ? v.stock
-                : validStock;
-
-            // Update primary variant images if Section 3 primary/additional images were updated
             const effectiveVarImages =
               idx === 0 && allProductImages.length > 0
                 ? allProductImages
@@ -684,39 +920,128 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 ? v.images
                 : allProductImages;
 
+            const sizeStockMap: Record<string, number> = {};
+            const sizeSkuMap: Record<string, string> = {};
+            const disabledSizesList: string[] = [];
+
+            sizeKeysForInventory.forEach((sz) => {
+              const comboKey = `${v.id}__${sz}`;
+              const cell = combinationInventory[comboKey];
+              const rawQty =
+                cell && cell.stockQuantity.trim() !== ''
+                  ? Math.max(0, Math.floor(Number(cell.stockQuantity) || 0))
+                  : 0;
+              const isComboActive = cell ? cell.isActive : true;
+              const comboSku =
+                cell?.sku?.trim() ||
+                formatCombinationSku(v.sku || pSku.trim() || productId, v.colorName, sz);
+
+              sizeStockMap[sz] = isComboActive ? rawQty : 0;
+              sizeSkuMap[sz] = comboSku;
+              if (!isComboActive) {
+                disabledSizesList.push(sz);
+              }
+
+              builtCombinations.push({
+                id: comboKey,
+                colorId: v.id,
+                colorName: v.colorName,
+                colorCode: v.colorCode,
+                size: sz,
+                sku: comboSku,
+                stockQuantity: isComboActive ? rawQty : 0,
+                isActive: isComboActive,
+                price: effectiveVarPrice,
+                salePrice: effectiveVarSalePrice,
+              });
+            });
+
+            const derivedVariantStock = Object.entries(sizeStockMap).reduce(
+              (acc, [sz, qty]) => (disabledSizesList.includes(sz) ? acc : acc + qty),
+              0
+            );
+
             return {
               ...v,
               price: effectiveVarPrice,
               salePrice: effectiveVarSalePrice,
-              stock: effectiveVarStock,
-              sizeStock: buildSizeStock(
-                effectiveVarStock,
-                v.sizeStock,
-                baseStockChanged || effectiveVarStock === 0
-              ),
+              stock: derivedVariantStock,
+              sizeStock: sizeStockMap,
+              sizeSku: sizeSkuMap,
+              disabledSizes: disabledSizesList.length > 0 ? disabledSizesList : undefined,
               images: effectiveVarImages,
             };
           })
-        : [
-            {
-              id: editingProduct?.variants?.[0]?.id || `var_${Date.now()}`,
-              colorName: pCustomColors.trim() || '',
-              colorCode: '#192E4D',
-              images: allProductImages,
-              sku: pSku.trim() || `ZD-${Date.now().toString().slice(-5)}`,
-              price: numericPrice,
-              salePrice: validSalePrice,
-              stock: validStock,
-              sizeStock: buildSizeStock(
-                validStock,
-                editingProduct?.variants?.[0]?.sizeStock,
-                true
-              ),
-              attributes: pCustomColors.trim()
-                ? undefined
-                : { isUnconfiguredDefault: 'true' },
-            },
-          ];
+        : (() => {
+            const carrierId = editingProduct?.variants?.[0]?.id || `var_${Date.now()}`;
+            const carrierColorName = pCustomColors.trim() || 'Standard';
+            const carrierBaseSku =
+              pSku.trim() ||
+              editingProduct?.variants?.[0]?.sku ||
+              `ZD-${Date.now().toString().slice(-5)}`;
+
+            const sizeStockMap: Record<string, number> = {};
+            const sizeSkuMap: Record<string, string> = {};
+            const disabledSizesList: string[] = [];
+
+            sizeKeysForInventory.forEach((sz) => {
+              const comboKey = `default_color__${sz}`;
+              const cell = combinationInventory[comboKey];
+              const rawQty =
+                cell && cell.stockQuantity.trim() !== ''
+                  ? Math.max(0, Math.floor(Number(cell.stockQuantity) || 0))
+                  : 0;
+              const isComboActive = cell ? cell.isActive : true;
+              const comboSku =
+                cell?.sku?.trim() ||
+                formatCombinationSku(carrierBaseSku, carrierColorName, sz);
+
+              sizeStockMap[sz] = isComboActive ? rawQty : 0;
+              sizeSkuMap[sz] = comboSku;
+              if (!isComboActive) {
+                disabledSizesList.push(sz);
+              }
+
+              builtCombinations.push({
+                id: `${carrierId}__${sz}`,
+                colorId: carrierId,
+                colorName: carrierColorName,
+                colorCode: '#192E4D',
+                size: sz,
+                sku: comboSku,
+                stockQuantity: isComboActive ? rawQty : 0,
+                isActive: isComboActive,
+                price: numericPrice,
+                salePrice: validSalePrice,
+              });
+            });
+
+            const derivedVariantStock = Object.entries(sizeStockMap).reduce(
+              (acc, [sz, qty]) => (disabledSizesList.includes(sz) ? acc : acc + qty),
+              0
+            );
+
+            return [
+              {
+                id: carrierId,
+                colorName: carrierColorName,
+                colorCode: '#192E4D',
+                images: allProductImages,
+                sku: carrierBaseSku,
+                price: numericPrice,
+                salePrice: validSalePrice,
+                stock: derivedVariantStock,
+                sizeStock: sizeStockMap,
+                sizeSku: sizeSkuMap,
+                disabledSizes: disabledSizesList.length > 0 ? disabledSizesList : undefined,
+                attributes: pCustomColors.trim()
+                  ? undefined
+                  : { isUnconfiguredDefault: 'true' },
+              },
+            ];
+          })();
+
+    const derivedProductTotalStock = finalVariants.reduce((sum, v) => sum + (v.stock || 0), 0);
 
     // Build clean specifications object (only non-empty entries)
     const cleanSpecificationsMap: Record<string, string> = {};
@@ -724,7 +1049,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     if (pCareInstructions.trim()) cleanSpecificationsMap.Care = pCareInstructions.trim();
 
     const productPayload: Product = {
-      id: editingProduct ? editingProduct.id : `prod_${Date.now()}`,
+      id: productId,
       name: pName.trim(),
       brand: pBrand.trim(),
       description: pDesc.trim(),
@@ -751,6 +1076,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       returnEligible: pReturnEligible,
       createdAt: editingProduct?.createdAt || new Date().toISOString(),
       variants: finalVariants,
+      variantCombinations: builtCombinations,
+      totalStock: derivedProductTotalStock,
       additionalImages: pAdditionalImages.length > 0 ? pAdditionalImages : undefined,
       sizeChartImage: pSizeChartImage.trim() || undefined,
       careImage: pCareImage.trim() || undefined,
@@ -1243,19 +1570,56 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           {/* SECTION 4: PRODUCT VARIANTS AND SIZES */}
           {activeSection === 4 && (
             <div className="space-y-4 animate-in fade-in-50">
-              <div className="border-b border-[#F0F4F8] pb-2">
-                <h3 className="text-sm font-black text-[#192E4D]">Section 4: Product Variants and Sizes</h3>
-                <p className="text-xs text-[#697586]">
-                  No size or color variant is selected automatically. Manually click each size available for this product, or select "No Sizes / Single Unit" if sizes do not apply.
-                </p>
+              <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-[#192E4D]">
+                    Section 4: Product Variants, Sizes & Combination Inventory
+                  </h3>
+                  <p className="text-xs text-[#697586]">
+                    Manage colours, sizes, and exact Colour + Size combination stock in one unified place. No size or colour is selected automatically.
+                  </p>
+                </div>
+                <div className="flex items-center gap-2 shrink-0">
+                  <span className="px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 font-extrabold text-xs">
+                    Total Stock: {derivedTotalStock} pcs
+                  </span>
+                </div>
               </div>
+
+              {pendingRemovalWarning && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2.5 shadow-2xs">
+                  <div className="flex items-center gap-2 font-extrabold text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Inventory / Order History Warning</span>
+                  </div>
+                  <p className="font-medium leading-relaxed">{pendingRemovalWarning.message}</p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPendingRemovalWarning(null)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-gray-700 font-bold text-xs cursor-pointer"
+                    >
+                      Keep Variant / Size
+                    </button>
+                    <button
+                      type="button"
+                      onClick={pendingRemovalWarning.onConfirm}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                    >
+                      Confirm Removal
+                    </button>
+                  </div>
+                </div>
+              )}
 
               {/* Variant option type selection */}
               <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-4">
                 <div className="flex items-center justify-between">
                   <label className="font-bold text-[#192E4D] block text-xs">Purchase Option Model</label>
                   <span className="text-[10px] font-bold text-teal-700 bg-teal-50 px-2 py-0.5 rounded-md border border-teal-100">
-                    {pAvailableSizes.length} Option(s) Selected
+                    {variantType === 'none'
+                      ? 'Single Unit (No Sizes)'
+                      : `${pAvailableSizes.length} Size(s) Selected`}
                   </span>
                 </div>
 
@@ -1276,6 +1640,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                         // Clear selected sizes when switching option model — never auto-select!
                         setPAvailableSizes([]);
                         setValidationError(null);
+                        setPendingRemovalWarning(null);
                       }}
                       className={`p-2.5 rounded-xl text-left border text-xs font-bold transition-all cursor-pointer ${
                         variantType === opt.id
@@ -1298,7 +1663,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       {pAvailableSizes.length > 0 && (
                         <button
                           type="button"
-                          onClick={() => setPAvailableSizes([])}
+                          onClick={() => {
+                            if (derivedTotalStock > 0) {
+                              setPendingRemovalWarning({
+                                message: `Clearing all selected sizes will remove ${activeCombinationRows.length} Colour + Size combination row(s) (${derivedTotalStock} total unit(s) in stock).`,
+                                onConfirm: () => {
+                                  setPAvailableSizes([]);
+                                  setPendingRemovalWarning(null);
+                                },
+                              });
+                            } else {
+                              setPAvailableSizes([]);
+                            }
+                          }}
                           className="text-[11px] font-bold text-rose-600 hover:underline cursor-pointer"
                         >
                           Clear All Selected
@@ -1375,10 +1752,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <div className="flex items-center justify-between">
                   <div>
                     <h4 className="font-extrabold text-[#192E4D] text-xs uppercase tracking-wider">
-                      Color Variants ({pVariants.length} Configured)
+                      Product Colours & Gallery Images ({pVariants.length} Configured)
                     </h4>
                     <p className="text-[11px] text-[#697586]">
-                      Optional: Add selectable color variants with their own images, SKU, price, and stock. Leave empty if this product does not have separate color variants.
+                      Add product colours and upload/link images for each colour. Adding or removing colours automatically updates the Colour + Size inventory table below.
                     </p>
                   </div>
                   <button
@@ -1387,71 +1764,249 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     className="px-3 py-1.5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Color Variant</span>
+                    <span>+ Add Colour Variant</span>
                   </button>
                 </div>
 
                 {pVariants.length === 0 ? (
-                  <div className="p-4 bg-white rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500">
-                    No separate color variants configured. You can add color variants above or specify a general color description (such as "Mix Colour Only") in Section 5.
+                  <div className="p-3.5 bg-white rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500">
+                    No separate colour variants added yet. Stock below is tracked under{' '}
+                    <span className="font-bold text-[#192E4D]">
+                      {pCustomColors.trim() || 'Standard'}
+                    </span>
+                    . Click <span className="font-bold text-[#08A9A2]">+ Add Colour Variant</span> above to manage multiple colours (e.g. Black, White, Blue) with their own images and per-size stock.
                   </div>
                 ) : (
                   <div className="space-y-2">
-                    {pVariants.map((v, idx) => (
-                      <div
-                        key={v.id || idx}
-                        className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
-                      >
-                        <div className="flex items-center gap-3">
-                          <div
-                            className="w-8 h-8 rounded-full border-2 border-white shadow-md shrink-0"
-                            style={{ backgroundColor: v.colorCode }}
-                          />
-                          <div>
-                            <div className="flex items-center gap-2">
-                              <span className="font-extrabold text-[#192E4D]">{v.colorName}</span>
-                              {v.sku && (
-                                <span className="font-mono text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">
-                                  {v.sku}
+                    {pVariants.map((v, idx) => {
+                      const colorDerivedStock = activeCombinationRows
+                        .filter((r) => r.colorId === v.id && r.isActive)
+                        .reduce((s, r) => s + r.stockQuantityNum, 0);
+                      return (
+                        <div
+                          key={v.id || idx}
+                          className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
+                        >
+                          <div className="flex items-center gap-3">
+                            <div
+                              className="w-8 h-8 rounded-full border-2 border-white shadow-md shrink-0"
+                              style={{ backgroundColor: v.colorCode }}
+                            />
+                            <div>
+                              <div className="flex items-center gap-2">
+                                <span className="font-extrabold text-[#192E4D]">{v.colorName}</span>
+                                {v.sku && (
+                                  <span className="font-mono text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">
+                                    Base SKU: {v.sku}
+                                  </span>
+                                )}
+                              </div>
+                              <div className="flex items-center gap-2 text-[10px] text-[#697586] mt-0.5">
+                                <span className="font-bold text-teal-700">
+                                  Colour Total Stock: {colorDerivedStock} pcs
                                 </span>
-                              )}
-                            </div>
-                            <div className="flex items-center gap-2 text-[10px] text-[#697586] mt-0.5">
-                              <span>Stock: {v.stock} pcs</span>
-                              {v.price > 0 && (
-                                <>
-                                  <span>•</span>
-                                  <span className="font-bold text-[#08A9A2]">₹{v.price}</span>
-                                </>
-                              )}
+                                {v.price > 0 && (
+                                  <>
+                                    <span>•</span>
+                                    <span className="font-bold text-[#192E4D]">₹{v.price}</span>
+                                  </>
+                                )}
+                                <span>•</span>
+                                <span>{v.images.length} photo(s)</span>
+                              </div>
                             </div>
                           </div>
-                        </div>
 
-                        <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
-                          {v.images.map((img, i) => (
-                            <img key={i} src={img} alt="" className="w-8 h-8 object-cover rounded-lg border" />
-                          ))}
-                        </div>
+                          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
+                            {v.images.map((img, i) => (
+                              <img
+                                key={i}
+                                src={img}
+                                alt={v.colorName}
+                                className="w-8 h-8 object-cover rounded-lg border"
+                              />
+                            ))}
+                          </div>
 
-                        <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                          <button
-                            type="button"
-                            onClick={() => openEditColorModal(idx)}
-                            className="px-2.5 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-xs hover:bg-teal-100 cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteVariant(idx)}
-                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
+                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
+                            <button
+                              type="button"
+                              onClick={() => openEditColorModal(idx)}
+                              className="px-2.5 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-xs hover:bg-teal-100 cursor-pointer"
+                            >
+                              Edit Colour / Photos
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteVariant(idx)}
+                              className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Remove colour variant"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
                         </div>
-                      </div>
-                    ))}
+                      );
+                    })}
+                  </div>
+                )}
+              </div>
+
+              {/* COLOUR + SIZE COMBINATION INVENTORY TABLE (Single Source of Truth for Stock) */}
+              <div className="p-4 rounded-2xl bg-white border-2 border-[#08A9A2]/30 shadow-xs space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 border-b border-[#E6EAF0] pb-3">
+                  <div>
+                    <div className="flex items-center gap-2">
+                      <h4 className="font-black text-[#192E4D] text-xs uppercase tracking-wider">
+                        Colour + Size Combination Inventory Table
+                      </h4>
+                      <span className="px-2 py-0.5 rounded-md bg-teal-50 text-[#08A9A2] font-extrabold text-[10px] border border-teal-200">
+                        Single Source of Truth
+                      </span>
+                    </div>
+                    <p className="text-[11px] text-[#697586] mt-0.5">
+                      Enter the exact stock quantity for each Colour + Size combination. Total product stock ({derivedTotalStock} pcs) is automatically calculated from active rows below.
+                    </p>
+                  </div>
+
+                  {activeCombinationRows.length > 0 && (
+                    <div className="flex items-center gap-1.5 shrink-0">
+                      <input
+                        type="number"
+                        min="0"
+                        step="1"
+                        value={bulkStockFillInput}
+                        onChange={(e) => setBulkStockFillInput(e.target.value)}
+                        placeholder="Quick fill qty..."
+                        className="w-28 h-8 px-2.5 border border-gray-300 rounded-lg text-xs font-bold bg-white"
+                      />
+                      <button
+                        type="button"
+                        onClick={handleApplyBulkStockToActiveRows}
+                        className="px-2.5 h-8 rounded-lg bg-slate-800 hover:bg-slate-700 text-white font-bold text-[11px] cursor-pointer whitespace-nowrap"
+                      >
+                        Apply to Active Rows
+                      </button>
+                    </div>
+                  )}
+                </div>
+
+                {variantType !== 'none' && pAvailableSizes.length === 0 ? (
+                  <div className="p-6 rounded-xl bg-amber-50/60 border border-dashed border-amber-300 text-center space-y-1">
+                    <p className="font-extrabold text-amber-900 text-xs">
+                      Select Available Sizes Above to Generate Inventory Combinations
+                    </p>
+                    <p className="text-[11px] text-amber-800">
+                      Click one or more sizes above (e.g. M, L, XL) — or choose "No Sizes / Single Unit" if this product does not use sizes — to manage Colour + Size stock quantities.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="overflow-x-auto rounded-xl border border-[#E6EAF0]">
+                    <table className="w-full text-left border-collapse text-xs">
+                      <thead>
+                        <tr className="bg-[#F6F8FA] text-[#192E4D] border-b border-[#E6EAF0] text-[11px] font-extrabold uppercase tracking-wider">
+                          <th className="py-2.5 px-3">Colour</th>
+                          <th className="py-2.5 px-3">Size</th>
+                          <th className="py-2.5 px-3">SKU</th>
+                          <th className="py-2.5 px-3">Stock Quantity</th>
+                          <th className="py-2.5 px-3 text-right">Combination Status</th>
+                        </tr>
+                      </thead>
+                      <tbody className="divide-y divide-[#E6EAF0]">
+                        {activeCombinationRows.map((row) => (
+                          <tr
+                            key={row.comboKey}
+                            className={`transition-colors ${
+                              row.isActive ? 'bg-white hover:bg-slate-50/70' : 'bg-gray-50 opacity-60'
+                            }`}
+                          >
+                            <td className="py-2.5 px-3 font-bold text-[#192E4D]">
+                              <div className="flex items-center gap-2">
+                                <span
+                                  className="w-4 h-4 rounded-full border border-gray-300 shrink-0"
+                                  style={{ backgroundColor: row.colorCode }}
+                                />
+                                <span>{row.colorName}</span>
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-extrabold text-[#192E4D] text-[11px]">
+                                {row.size}
+                              </span>
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <input
+                                type="text"
+                                value={row.sku}
+                                disabled={!row.isActive}
+                                onChange={(e) =>
+                                  updateCombinationCell(row.comboKey, row.sku, {
+                                    sku: e.target.value,
+                                  })
+                                }
+                                placeholder="SKU code"
+                                className="w-full max-w-[180px] h-8 px-2.5 border border-gray-200 rounded-lg font-mono text-[11px] font-bold text-[#192E4D] bg-white disabled:bg-gray-100"
+                              />
+                            </td>
+                            <td className="py-2.5 px-3">
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="number"
+                                  min="0"
+                                  step="1"
+                                  disabled={!row.isActive}
+                                  value={row.stockQuantityStr}
+                                  onChange={(e) => {
+                                    const val = e.target.value;
+                                    if (val === '' || /^\d+$/.test(val)) {
+                                      updateCombinationCell(row.comboKey, row.sku, {
+                                        stockQuantity: val,
+                                      });
+                                      setValidationError(null);
+                                    }
+                                  }}
+                                  placeholder="0"
+                                  className="w-24 h-8 px-2.5 border border-gray-300 rounded-lg font-extrabold text-xs text-[#192E4D] bg-white focus:border-[#08A9A2] focus:outline-hidden disabled:bg-gray-100"
+                                />
+                                <span className="text-[10px] font-semibold text-gray-500">pcs</span>
+                                {row.isActive && row.stockQuantityNum === 0 && (
+                                  <span className="text-[10px] font-bold text-rose-600 bg-rose-50 px-1.5 py-0.5 rounded">
+                                    Out of Stock
+                                  </span>
+                                )}
+                              </div>
+                            </td>
+                            <td className="py-2.5 px-3 text-right">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  updateCombinationCell(row.comboKey, row.sku, {
+                                    isActive: !row.isActive,
+                                  })
+                                }
+                                className={`px-2.5 py-1 rounded-lg text-[11px] font-bold cursor-pointer transition-colors ${
+                                  row.isActive
+                                    ? 'bg-emerald-50 text-emerald-700 border border-emerald-200 hover:bg-emerald-100'
+                                    : 'bg-gray-200 text-gray-600 hover:bg-gray-300'
+                                }`}
+                              >
+                                {row.isActive ? 'Available' : 'Disabled'}
+                              </button>
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                      <tfoot>
+                        <tr className="bg-[#F6F8FA] border-t border-[#E6EAF0] font-extrabold text-[#192E4D]">
+                          <td colSpan={3} className="py-2.5 px-3 text-xs">
+                            Total Derived Product Stock ({activeCombinationRows.filter((r) => r.isActive).length} active combination(s))
+                          </td>
+                          <td colSpan={2} className="py-2.5 px-3 text-right text-sm text-[#08A9A2]">
+                            {derivedTotalStock} pcs
+                          </td>
+                        </tr>
+                      </tfoot>
+                    </table>
                   </div>
                 )}
               </div>
@@ -1788,17 +2343,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 7: PRICING & INVENTORY */}
+          {/* SECTION 7: PRICING & VARIANT INVENTORY SUMMARY */}
           {activeSection === 7 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
-                <h3 className="text-sm font-black text-[#192E4D]">Section 7: Pricing & Inventory Control</h3>
+                <h3 className="text-sm font-black text-[#192E4D]">Section 7: Price & Variant Stock Summary</h3>
                 <p className="text-xs text-[#697586]">
-                  Enter the product price (₹) and available inventory stock.
+                  Configure product retail and promotional sale pricing. Product stock is strictly derived from the Colour + Size inventory table in Section 4.
                 </p>
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
                 <div>
                   <label className="font-bold text-[#192E4D] block mb-1">
                     Base Retail Price (₹) <span className="text-rose-500">*</span>
@@ -1829,20 +2384,68 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     className="w-full h-11 px-3.5 border border-[#E6EAF0] rounded-xl text-sm font-bold text-teal-700"
                   />
                 </div>
+              </div>
 
-                <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">
-                    Available Inventory Stock
-                  </label>
-                  <input
-                    type="number"
-                    min="0"
-                    value={pBaseStock}
-                    onChange={(e) => setPBaseStock(e.target.value)}
-                    placeholder="Enter total stock qty"
-                    className="w-full h-11 px-3.5 border border-[#E6EAF0] rounded-xl text-sm font-bold text-[#192E4D]"
-                  />
+              {/* Read-Only Summary of Colour + Size Variant Inventory */}
+              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-3">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                  <div>
+                    <h4 className="font-extrabold text-[#192E4D] text-xs uppercase tracking-wider">
+                      Read-Only Variant Inventory Summary
+                    </h4>
+                    <p className="text-[11px] text-[#697586]">
+                      Global stock inputs have been removed to prevent inventory conflicts. Edit individual Colour + Size quantities in Section 4.
+                    </p>
+                  </div>
+                  <div className="flex items-center gap-2 shrink-0">
+                    <span className="px-3 py-1.5 rounded-xl bg-white border border-[#E6EAF0] font-black text-xs text-[#192E4D]">
+                      Total Stock: <span className="text-[#08A9A2]">{derivedTotalStock} pcs</span>
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setActiveSection(4)}
+                      className="px-3 py-1.5 rounded-xl bg-[#192E4D] hover:bg-slate-800 text-white font-bold text-xs cursor-pointer"
+                    >
+                      Edit Colour + Size Stock (Sec 4)
+                    </button>
+                  </div>
                 </div>
+
+                {activeCombinationRows.length > 0 && (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-2 pt-1">
+                    {activeCombinationRows.map((row) => (
+                      <div
+                        key={row.comboKey}
+                        className={`p-2.5 rounded-xl border text-xs flex items-center justify-between ${
+                          row.isActive
+                            ? 'bg-white border-[#E6EAF0]'
+                            : 'bg-gray-100 border-gray-200 opacity-60'
+                        }`}
+                      >
+                        <div className="flex items-center gap-1.5 truncate">
+                          <span
+                            className="w-3 h-3 rounded-full border border-gray-300 shrink-0"
+                            style={{ backgroundColor: row.colorCode }}
+                          />
+                          <span className="font-bold text-[#192E4D] truncate">
+                            {row.colorName} • {row.size}
+                          </span>
+                        </div>
+                        <span
+                          className={`font-extrabold shrink-0 ml-1 ${
+                            !row.isActive
+                              ? 'text-gray-400'
+                              : row.stockQuantityNum > 0
+                              ? 'text-teal-700'
+                              : 'text-rose-600'
+                          }`}
+                        >
+                          {row.isActive ? `${row.stockQuantityNum} pcs` : 'Disabled'}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -2078,11 +2681,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 text-[11px]">
                   <div>
-                    <span className="text-gray-400 block">Color Variants:</span>
+                    <span className="text-gray-400 block">Colour Variants:</span>
                     <span className="font-bold">
                       {pVariants.length > 0
                         ? pVariants.map((v) => v.colorName).join(', ')
-                        : pCustomColors.trim() || 'None configured'}
+                        : pCustomColors.trim() || 'Standard'}
                     </span>
                   </div>
                   <div>
@@ -2096,12 +2699,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block">Entered Specs:</span>
-                    <span className="font-bold">{nonEmptySpecCount} field(s)</span>
+                    <span className="text-gray-400 block">Derived Total Stock:</span>
+                    <span className="font-extrabold text-[#08A9A2]">
+                      {derivedTotalStock} pcs ({activeCombinationRows.filter((r) => r.isActive).length} combinations)
+                    </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block">Custom Specs:</span>
-                    <span className="font-bold">{customSpecs.length} row(s)</span>
+                    <span className="text-gray-400 block">Entered Specs:</span>
+                    <span className="font-bold">
+                      {nonEmptySpecCount} field(s) • {customSpecs.length} custom
+                    </span>
                   </div>
                 </div>
               </div>
@@ -2227,26 +2834,29 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
               <div className="grid grid-cols-2 gap-2">
                 <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">SKU (Optional)</label>
+                  <label className="font-bold text-[#192E4D] block mb-1">Base Colour SKU (Optional)</label>
                   <input
                     type="text"
                     value={vSku}
                     onChange={(e) => setVSku(e.target.value)}
-                    placeholder="Optional variant SKU"
+                    placeholder="e.g. ZD-001-BLK"
                     className="w-full h-9 px-2 border rounded-lg font-mono"
                   />
                 </div>
                 <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">Variant Stock</label>
+                  <label className="font-bold text-[#192E4D] block mb-1">Promotional Sale Price (₹)</label>
                   <input
                     type="number"
-                    value={vStock}
-                    onChange={(e) => setVStock(e.target.value)}
-                    placeholder="Stock qty"
-                    className="w-full h-9 px-2 border rounded-lg font-bold"
+                    value={vSalePrice}
+                    onChange={(e) => setVSalePrice(e.target.value)}
+                    placeholder={pSalePrice || 'Optional'}
+                    className="w-full h-9 px-2 border rounded-lg font-bold text-teal-700"
                   />
                 </div>
               </div>
+              <p className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded-xl p-2.5 font-medium">
+                Stock quantities for this colour are managed per size in the <strong>Colour + Size Combination Inventory Table</strong> in Section 4.
+              </p>
 
               {/* Photos for this color */}
               <div>

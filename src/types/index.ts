@@ -62,6 +62,20 @@ export interface CategorySpecificationTemplate {
   updatedAt?: string;
 }
 
+export interface VariantStockCombination {
+  id: string;
+  colorId: string;
+  colorName: string;
+  colorCode: string;
+  size: string;
+  sku: string;
+  stockQuantity: number;
+  reservedQuantity?: number;
+  isActive: boolean;
+  price?: number;
+  salePrice?: number;
+}
+
 export interface ProductVariant {
   id: string;
   colorName: string;
@@ -70,8 +84,12 @@ export interface ProductVariant {
   sku: string;
   price: number;
   salePrice?: number;
-  stock: number;
+  stock: number; // Derived sum of active Colour + Size combinations for this colour
   sizeStock?: Record<string, number>;
+  sizeSku?: Record<string, string>;
+  disabledSizes?: string[];
+  reservedStock?: number;
+  isActive?: boolean;
   attributes?: Record<string, string>;
   optionPricing?: Record<string, { price: number; salePrice?: number }>;
 }
@@ -95,6 +113,8 @@ export interface Product {
   tags: string[];
   specifications?: Record<string, string>;
   variants: ProductVariant[];
+  variantCombinations?: VariantStockCombination[];
+  totalStock?: number; // Derived sum of all active Colour + Size combinations
   sizes: string[];
   status: 'published' | 'draft' | 'hidden' | 'archived';
   shippingEligible: boolean;
@@ -298,6 +318,7 @@ export interface CartItem {
   colorCode: string;
   image: string;
   size?: string;
+  sku?: string;
   price: number;
   quantity: number;
   maxStock: number;
@@ -354,6 +375,7 @@ export interface Order {
   };
   notes?: string;
   couponCode?: string;
+  stockRestored?: boolean;
   createdAt: string;
 }
 

@@ -72,6 +72,8 @@ import {
   firestoreDeleteHomepageSection,
   firestoreSaveOrder,
   firestoreUpdateOrderStatus,
+  firestoreProcessOrderStockTransaction,
+  firestoreRestoreOrderStockTransaction,
   firestoreSaveCoupon,
   firestoreDeleteCoupon,
   firestoreSaveCategoryTemplate,
@@ -219,7 +221,7 @@ interface AppContextType {
   duplicateHomepageSection: (sectionId: string) => Promise<boolean>;
   saveSingleHomepageSection: (section: HomepageSection) => Promise<boolean>;
   updateOrderStatus: (orderId: string, newStatus: OrderStatus, courierData?: { courier: string; trackingNumber: string; estimatedDelivery: string }, note?: string) => { success: boolean; message?: string };
-  updateVariantStock: (productId: string, variantId: string, newStock: number, sizeStock?: Record<string, number>) => void;
+  updateVariantStock: (productId: string, variantId: string, newStock: number, sizeStock?: Record<string, number>, targetSize?: string) => void;
   saveCoupon: (coupon: Coupon) => void;
   deleteCoupon: (code: string) => void;
   moderateReview: (reviewId: string, status: 'approved' | 'rejected') => void;
@@ -732,7 +734,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           liveVariant.stock,
           liveVariant.sizeStock,
           normalizedSize,
-          1
+          1,
+          liveVariant.disabledSizes,
+          liveVariant.isActive !== false
         );
         if (stockCheck.remaining <= 0) {
           changed = true;
@@ -748,6 +752,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           liveVariant.images?.[0] ||
           item.image ||
           'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
+        const combinationSku =
+          liveVariant.sizeSku?.[normalizedSize || 'Single Unit'] || liveVariant.sku;
 
         if (
           item.price !== currentPrice ||
@@ -755,7 +761,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           item.quantity !== clampedQty ||
           item.productName !== liveProd.name ||
           item.brand !== liveProd.brand ||
-          item.image !== latestImg
+          item.image !== latestImg ||
+          item.sku !== combinationSku
         ) {
           changed = true;
           updatedCart.push({
@@ -766,6 +773,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             price: currentPrice,
             quantity: clampedQty,
             maxStock: stockCheck.remaining,
+            sku: combinationSku,
           });
         } else {
           updatedCart.push(item);
@@ -1159,7 +1167,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       liveVariant.stock,
       liveVariant.sizeStock,
       normalizedSize,
-      quantity
+      quantity,
+      liveVariant.disabledSizes,
+      liveVariant.isActive !== false
     );
     if (!stockCheck.isAvailable) {
       return { success: false, message: stockCheck.message };
@@ -1171,14 +1181,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       normalizedSize
     );
     const cartItemId = `${liveProduct.id}_${liveVariant.id}_${size || 'default'}`;
+    const existingCartItem = cart.find((item) => item.id === cartItemId);
+    if (existingCartItem && existingCartItem.quantity + quantity > stockCheck.remaining) {
+      return {
+        success: false,
+        message: `Only ${stockCheck.remaining} unit(s) available in stock (you already have ${existingCartItem.quantity} in your cart).`,
+      };
+    }
+
+    const combinationSku =
+      liveVariant.sizeSku?.[normalizedSize || 'Single Unit'] || liveVariant.sku;
 
     setCart((prev) => {
       const existing = prev.find((item) => item.id === cartItemId);
       if (existing) {
-        const newQty = existing.quantity + quantity;
-        if (newQty > stockCheck.remaining) {
-          return prev;
-        }
+        const newQty = Math.min(existing.quantity + quantity, stockCheck.remaining);
         return prev.map((item) =>
           item.id === cartItemId
             ? {
@@ -1186,6 +1203,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
                 price: effectivePrice,
                 maxStock: stockCheck.remaining,
                 quantity: newQty,
+                sku: combinationSku,
               }
             : item
         );
@@ -1202,6 +1220,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
             liveVariant.images[0] ||
             'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
           size,
+          sku: combinationSku,
           price: effectivePrice,
           quantity,
           maxStock: stockCheck.remaining,
@@ -1314,7 +1333,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         liveVar.stock,
         liveVar.sizeStock,
         normalizedSize,
-        item.quantity
+        item.quantity,
+        liveVar.disabledSizes,
+        liveVar.isActive !== false
       );
       if (!stockCheck.isAvailable) {
         return {
@@ -1323,13 +1344,25 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         };
       }
       const { currentPrice } = getEffectiveProductPricing(liveProd, liveVar, normalizedSize);
+      const combinationSku =
+        liveVar.sizeSku?.[normalizedSize || 'Single Unit'] || liveVar.sku;
       verifiedCartItems.push({
         ...item,
         productName: liveProd.name,
         brand: liveProd.brand,
         price: currentPrice,
         maxStock: stockCheck.remaining,
+        sku: combinationSku,
       });
+    }
+
+    // Atomically validate and deduct stock in Firestore (Colour + Size combination transaction)
+    const stockTx = await firestoreProcessOrderStockTransaction(verifiedCartItems, products);
+    if (!stockTx.success) {
+      return {
+        success: false,
+        error: stockTx.error || 'Insufficient stock available for one or more items.',
+      };
     }
 
     const subtotal = verifiedCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
@@ -1400,31 +1433,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       createdAt: new Date().toISOString(),
     };
 
-    // Atomically adjust stock for each item in product catalog
-    setProducts((prev) =>
-      prev.map((prod) => {
-        const orderItem = cart.find((c) => c.productId === prod.id);
-        if (!orderItem) return prod;
-
-        const updatedVariants = prod.variants.map((v) => {
-          if (v.id === orderItem.variantId) {
-            const newStock = Math.max(0, v.stock - orderItem.quantity);
-            const newSizeStock = { ...(v.sizeStock || {}) };
-            if (orderItem.size && newSizeStock[orderItem.size] !== undefined) {
-              newSizeStock[orderItem.size] = Math.max(0, newSizeStock[orderItem.size] - orderItem.quantity);
-            }
-            return {
-              ...v,
-              stock: newStock,
-              sizeStock: newSizeStock,
-            };
-          }
-          return v;
-        });
-
-        return { ...prod, variants: updatedVariants };
-      })
-    );
+    // Update local product catalog with transaction-verified combination stock
+    if (stockTx.updatedProducts && stockTx.updatedProducts.length > 0) {
+      const updatedMap = new Map(stockTx.updatedProducts.map((p) => [p.id, p]));
+      setProducts((prev) => prev.map((prod) => updatedMap.get(prod.id) || prod));
+    }
 
     setOrders((prev) => [newOrder, ...prev]);
     setCart([]);
@@ -1434,29 +1447,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     // Save order to Cloud Firestore so it syncs to admin panel across any device
     firestoreSaveOrder(newOrder).catch((err) => {
       console.warn('[AppContext] Order save to Firestore failed:', err);
-    });
-
-    // Sync decremented variant stock to Cloud Firestore
-    products.forEach((prod) => {
-      const orderItem = cart.find((c) => c.productId === prod.id);
-      if (orderItem) {
-        const updatedVariants = prod.variants.map((v) => {
-          if (v.id === orderItem.variantId) {
-            const newStock = Math.max(0, v.stock - orderItem.quantity);
-            const newSizeStock = { ...(v.sizeStock || {}) };
-            if (orderItem.size && newSizeStock[orderItem.size] !== undefined) {
-              newSizeStock[orderItem.size] = Math.max(0, newSizeStock[orderItem.size] - orderItem.quantity);
-            }
-            return {
-              ...v,
-              stock: newStock,
-              sizeStock: newSizeStock,
-            };
-          }
-          return v;
-        });
-        firestoreSaveProduct({ ...prod, variants: updatedVariants }).catch(console.warn);
-      }
     });
 
     // Customer Notification: Order Placed
@@ -1728,20 +1718,19 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
       const defaultVariant: ProductVariant = {
         id: `var_${Date.now()}`,
-        colorName: '',
+        colorName: 'Standard',
         colorCode: '#192E4D',
         images: product.additionalImages || [],
         sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
         price: product.price,
         salePrice: validTopSalePrice,
-        stock: 20,
+        stock: 0,
+        sizeStock: { 'Single Unit': 0 },
         attributes: { isUnconfiguredDefault: 'true' },
       };
 
       const variants = (rawVariants.length > 0 ? rawVariants : [defaultVariant]).map((v) => {
         const vPrice = typeof v.price === 'number' && v.price > 0 ? v.price : product.price;
-        // If product.salePrice is set, or variant has its own salePrice < vPrice:
-        // Note: if admin cleared product.salePrice on a single-variant product, clear variant.salePrice too
         const isSingleCarrier = rawVariants.length <= 1;
         const vSalePrice = isSingleCarrier
           ? validTopSalePrice
@@ -1751,7 +1740,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           ? validTopSalePrice
           : undefined;
         const vStock =
-          typeof v.stock === 'number' && !Number.isNaN(v.stock) ? Math.max(0, v.stock) : 0;
+          typeof v.stock === 'number' && !Number.isNaN(v.stock) ? Math.max(0, Math.floor(v.stock)) : 0;
 
         return {
           ...v,
@@ -2165,6 +2154,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       };
     }
 
+    const shouldRestoreStock =
+      (newStatus === 'cancelled' || newStatus === 'refunded') && !order.stockRestored;
+
     setOrders((prev) =>
       prev.map((o) => {
         if (o.id === orderId) {
@@ -2177,6 +2169,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return {
             ...o,
             status: newStatus,
+            stockRestored: shouldRestoreStock ? true : o.stockRestored,
             timeline: [...o.timeline, newTimelineItem],
             courierTracking: courierData || o.courierTracking,
           };
@@ -2184,6 +2177,54 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         return o;
       })
     );
+
+    if (shouldRestoreStock) {
+      // Restore stock locally and atomically in Firestore
+      setProducts((prev) =>
+        prev.map((prod) => {
+          const prodItems = order.items.filter((item) => item.productId === prod.id);
+          if (prodItems.length === 0) return prod;
+
+          const updatedVariants = prod.variants.map((v) => {
+            const varItems = prodItems.filter((item) => item.variantId === v.id);
+            if (varItems.length === 0) return v;
+
+            const newSizeStock = { ...(v.sizeStock || {}) };
+            for (const item of varItems) {
+              const qty = Math.max(1, Math.floor(Number(item.quantity) || 1));
+              const sizeKey =
+                item.size && item.size !== 'One Size' && item.size !== 'default'
+                  ? item.size
+                  : 'Single Unit';
+              const targetKey =
+                newSizeStock[sizeKey] !== undefined
+                  ? sizeKey
+                  : Object.keys(newSizeStock)[0] || sizeKey;
+              newSizeStock[targetKey] = Math.max(0, (newSizeStock[targetKey] || 0) + qty);
+            }
+            const disabledSet = new Set(v.disabledSizes || []);
+            const derivedStock = Object.entries(newSizeStock).reduce(
+              (acc, [sz, sQty]) => (disabledSet.has(sz) ? acc : acc + Math.max(0, Math.floor(sQty))),
+              0
+            );
+            return {
+              ...v,
+              sizeStock: newSizeStock,
+              stock: derivedStock,
+            };
+          });
+
+          return normalizeProductFromFirestore(
+            { ...prod, variants: updatedVariants, updatedAt: new Date().toISOString() },
+            prod.id
+          );
+        })
+      );
+
+      firestoreRestoreOrderStockTransaction(order, products).catch((err) => {
+        console.warn('[AppContext] Order stock restore transaction warning:', err);
+      });
+    }
 
     const statusTitles: Record<OrderStatus, string> = {
       placed: 'Order Placed',
@@ -2234,7 +2275,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     }
 
     recordAudit('ORDER_STATUS_UPDATE', `Order ${orderId} moved to ${newStatus}`);
-    firestoreUpdateOrderStatus(orderId, newStatus, courierData, note).catch(console.warn);
+    firestoreUpdateOrderStatus(
+      orderId,
+      newStatus,
+      courierData,
+      note,
+      shouldRestoreStock ? true : order.stockRestored
+    ).catch(console.warn);
     return { success: true };
   };
 
@@ -2242,13 +2289,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     productId: string,
     variantId: string,
     newStock: number,
-    sizeStock?: Record<string, number>
+    sizeStock?: Record<string, number>,
+    targetSize?: string
   ) => {
+    const cleanQty = Math.max(0, Math.floor(Number(newStock) || 0));
     const prod = products.find((p) => p.id === productId);
     const existingVariant = prod?.variants.find((v) => v.id === variantId);
-    const prodLabel = prod ? `${prod.name} (${existingVariant?.colorName || 'Variant'})` : 'Product';
+    const sizeLabel = targetSize && targetSize !== 'Single Unit' ? ` / Size ${targetSize}` : '';
+    const prodLabel = prod
+      ? `${prod.name} (${existingVariant?.colorName || 'Standard'}${sizeLabel})`
+      : 'Product';
 
-    if (newStock === 0) {
+    if (cleanQty === 0) {
       sendNotification({
         recipientRole: 'admin',
         type: 'out_of_stock',
@@ -2256,16 +2308,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: `${prodLabel} is now completely out of stock (0 units).`,
         deepLink: 'admin:inventory',
       });
-    } else if (newStock <= 5) {
+    } else if (cleanQty <= 5) {
       sendNotification({
         recipientRole: 'admin',
         type: 'low_stock',
         title: 'Low Stock Warning ⚠️',
-        message: `${prodLabel} is running low (${newStock} units remaining).`,
+        message: `${prodLabel} is running low (${cleanQty} units remaining).`,
         deepLink: 'admin:inventory',
       });
-    } else if (existingVariant && existingVariant.stock === 0 && newStock > 0) {
-      // Replenished from 0 -> customer back in stock alert
+    } else if (
+      existingVariant &&
+      ((targetSize && (existingVariant.sizeStock?.[targetSize] ?? 0) === 0) ||
+        (!targetSize && existingVariant.stock === 0)) &&
+      cleanQty > 0
+    ) {
       sendNotification({
         recipientRole: 'customer',
         type: 'back_in_stock',
@@ -2280,22 +2336,49 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         if (p.id === productId) {
           const updatedVariants = p.variants.map((v) => {
             if (v.id === variantId) {
+              let nextSizeStock: Record<string, number> = { ...(v.sizeStock || {}) };
+              if (sizeStock) {
+                nextSizeStock = {};
+                Object.entries(sizeStock).forEach(([k, val]) => {
+                  nextSizeStock[k] = Math.max(0, Math.floor(Number(val) || 0));
+                });
+              } else if (targetSize) {
+                nextSizeStock[targetSize] = cleanQty;
+              } else {
+                const keys = Object.keys(nextSizeStock);
+                if (keys.length <= 1) {
+                  nextSizeStock[keys[0] || 'Single Unit'] = cleanQty;
+                }
+              }
+
+              const disabledSet = new Set(v.disabledSizes || []);
+              const derivedVariantStock = Object.entries(nextSizeStock).reduce(
+                (acc, [sz, qty]) => (disabledSet.has(sz) ? acc : acc + Math.max(0, Math.floor(qty))),
+                0
+              );
+
               return {
                 ...v,
-                stock: newStock,
-                sizeStock: sizeStock || v.sizeStock,
+                sizeStock: nextSizeStock,
+                stock: derivedVariantStock,
               };
             }
             return v;
           });
-          const updatedProduct = { ...p, variants: updatedVariants };
+          const updatedProduct = normalizeProductFromFirestore(
+            { ...p, variants: updatedVariants, updatedAt: new Date().toISOString() },
+            p.id
+          );
           firestoreSaveProduct(updatedProduct).catch(console.warn);
           return updatedProduct;
         }
         return p;
       })
     );
-    recordAudit('INVENTORY_ADJUSTMENT', `Adjusted stock for product ${productId}, variant ${variantId} -> ${newStock}`);
+    recordAudit(
+      'INVENTORY_ADJUSTMENT',
+      `Adjusted stock for product ${productId}, variant ${variantId}${targetSize ? ` (${targetSize})` : ''} -> ${cleanQty}`
+    );
   };
 
   const saveCoupon = (coupon: Coupon) => {

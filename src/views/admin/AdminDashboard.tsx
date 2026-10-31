@@ -104,14 +104,18 @@ export const AdminDashboard: React.FC = () => {
     setShowProductModal(true);
   };
 
-  // Inventory Restock modal state
+  // Inventory Restock modal state (Colour + Size combination aware)
   const [restockItem, setRestockItem] = useState<{
     productId: string;
+    productName: string;
     variantId: string;
     colorName: string;
+    size: string;
+    sku: string;
     currentStock: number;
   } | null>(null);
   const [addStockAmount, setAddStockAmount] = useState(10);
+  const [restockMode, setRestockMode] = useState<'add' | 'set'>('add');
 
   // Tracking number form state
   const [selectedOrderForCourier, setSelectedOrderForCourier] = useState<string | null>(null);
@@ -901,86 +905,153 @@ export const AdminDashboard: React.FC = () => {
             </div>
           )}
 
-          {/* MODULE 6: VARIANT INVENTORY & STOCK RESTOCK */}
+          {/* MODULE 6: VARIANT INVENTORY & STOCK RESTOCK (Colour + Size Combination Level) */}
           {adminModule === 'inventory' && (
             <div className="space-y-4">
-              <div>
-                <h1 className="text-lg font-extrabold text-[#192E4D]">Variant-Level Inventory Control</h1>
-                <p className="text-xs text-[#697586]">
-                  Every color and size variant combination has independent inventory tracking.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h1 className="text-lg font-extrabold text-[#192E4D]">
+                    Colour + Size Combination Inventory Control
+                  </h1>
+                  <p className="text-xs text-[#697586]">
+                    Every Colour + Size combination has independent SKU and stock tracking. Total product stock is automatically derived from active combinations.
+                  </p>
+                </div>
               </div>
 
               <div className="bg-white rounded-2xl border border-[#E6EAF0] overflow-hidden shadow-2xs">
                 <div className="overflow-x-auto no-scrollbar">
-                  <table className="w-full min-w-[650px] text-xs text-left">
-                  <thead className="bg-[#F6F8FA] text-[#697586] font-bold border-b border-[#E6EAF0]">
-                    <tr>
-                      <th className="p-3">Product & Brand</th>
-                      <th className="p-3">Color Variant</th>
-                      <th className="p-3">SKU</th>
-                      <th className="p-3">Current Stock</th>
-                      <th className="p-3">Stock Per Size</th>
-                      <th className="p-3 text-right">Quick Restock</th>
-                    </tr>
-                  </thead>
-                  <tbody className="divide-y divide-[#F0F4F8]">
-                    {products.flatMap((prod) =>
-                      prod.variants.map((v) => (
-                        <tr key={v.id} className="hover:bg-[#FBFDFE]">
-                          <td className="p-3 font-bold text-[#192E4D]">{prod.name}</td>
-                          <td className="p-3 font-semibold">
-                            <div className="flex items-center gap-1.5">
-                              <span
-                                className="w-3 h-3 rounded-full border border-black/10 shrink-0"
-                                style={{ backgroundColor: v.colorCode }}
-                              />
-                              <span>{v.colorName}</span>
-                            </div>
-                          </td>
-                          <td className="p-3 font-mono text-[#697586]">{v.sku}</td>
-                          <td className="p-3">
-                            <span
-                              className={`px-2 py-0.5 rounded-md font-bold ${
-                                v.stock < 10
-                                  ? 'bg-rose-50 text-rose-700'
-                                  : 'bg-emerald-50 text-emerald-700'
-                              }`}
-                            >
-                              {v.stock} pcs
-                            </span>
-                          </td>
-                          <td className="p-3 text-[#697586]">
-                            {v.sizeStock
-                              ? Object.entries(v.sizeStock)
-                                  .map(([s, q]) => `${s}: ${q}`)
-                                  .join(' | ')
-                              : 'All Sizes'}
-                          </td>
-                          <td className="p-3 text-right">
-                            <button
-                              type="button"
-                              onClick={() => {
-                                setRestockItem({
-                                  productId: prod.id,
-                                  variantId: v.id,
-                                  colorName: v.colorName,
-                                  currentStock: v.stock,
-                                });
-                              }}
-                              className="px-2.5 py-1 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-colors"
-                            >
-                              + Restock
-                            </button>
-                          </td>
-                        </tr>
-                      ))
-                    )}
-                  </tbody>
-                </table>
+                  <table className="w-full min-w-[720px] text-xs text-left">
+                    <thead className="bg-[#F6F8FA] text-[#697586] font-bold border-b border-[#E6EAF0]">
+                      <tr>
+                        <th className="p-3">Product & Brand</th>
+                        <th className="p-3">Colour</th>
+                        <th className="p-3">Size</th>
+                        <th className="p-3">SKU</th>
+                        <th className="p-3">Stock Quantity</th>
+                        <th className="p-3">Status</th>
+                        <th className="p-3 text-right">Manage Stock</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-[#F0F4F8]">
+                      {products.flatMap((prod) =>
+                        prod.variants.flatMap((v) => {
+                          const sizeKeys =
+                            prod.variantType === 'none' || !prod.sizes || prod.sizes.length === 0
+                              ? ['Single Unit']
+                              : prod.sizes;
+                          const disabledSet = new Set(v.disabledSizes || []);
+
+                          return sizeKeys.map((sz) => {
+                            const isComboActive = !disabledSet.has(sz) && v.isActive !== false;
+                            const comboQty = isComboActive
+                              ? Math.max(
+                                  0,
+                                  Math.floor(
+                                    Number(
+                                      v.sizeStock && v.sizeStock[sz] !== undefined
+                                        ? v.sizeStock[sz]
+                                        : sizeKeys.length === 1
+                                        ? v.stock
+                                        : 0
+                                    ) || 0
+                                  )
+                                )
+                              : 0;
+                            const comboSku = v.sizeSku?.[sz] || v.sku;
+                            const displayColorName =
+                              v.colorName && v.colorName.trim() !== ''
+                                ? v.colorName
+                                : prod.customColors || 'Standard';
+
+                            return (
+                              <tr key={`${prod.id}_${v.id}_${sz}`} className="hover:bg-[#FBFDFE]">
+                                <td className="p-3 font-bold text-[#192E4D]">
+                                  <span className="block">{prod.name}</span>
+                                  {prod.brand && (
+                                    <span className="text-[10px] text-[#08A9A2] font-semibold">
+                                      {prod.brand}
+                                    </span>
+                                  )}
+                                </td>
+                                <td className="p-3 font-semibold text-[#192E4D]">
+                                  <div className="flex items-center gap-1.5">
+                                    <span
+                                      className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
+                                      style={{ backgroundColor: v.colorCode }}
+                                    />
+                                    <span>{displayColorName}</span>
+                                  </div>
+                                </td>
+                                <td className="p-3">
+                                  <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-extrabold text-[#192E4D] text-[11px]">
+                                    {sz}
+                                  </span>
+                                </td>
+                                <td className="p-3 font-mono text-[11px] text-[#697586]">{comboSku}</td>
+                                <td className="p-3">
+                                  <span
+                                    className={`px-2.5 py-0.5 rounded-md font-extrabold ${
+                                      !isComboActive
+                                        ? 'bg-gray-100 text-gray-500'
+                                        : comboQty === 0
+                                        ? 'bg-rose-100 text-rose-800'
+                                        : comboQty < 10
+                                        ? 'bg-amber-50 text-amber-800'
+                                        : 'bg-emerald-50 text-emerald-700'
+                                    }`}
+                                  >
+                                    {comboQty} pcs
+                                  </span>
+                                </td>
+                                <td className="p-3">
+                                  <span
+                                    className={`px-2 py-0.5 rounded-full text-[10px] font-bold ${
+                                      !isComboActive
+                                        ? 'bg-gray-100 text-gray-500'
+                                        : comboQty > 0
+                                        ? 'bg-emerald-50 text-emerald-700'
+                                        : 'bg-rose-50 text-rose-700'
+                                    }`}
+                                  >
+                                    {!isComboActive
+                                      ? 'Disabled'
+                                      : comboQty > 0
+                                      ? 'In Stock'
+                                      : 'Out of Stock'}
+                                  </span>
+                                </td>
+                                <td className="p-3 text-right">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setRestockMode('add');
+                                      setAddStockAmount(10);
+                                      setRestockItem({
+                                        productId: prod.id,
+                                        productName: prod.name,
+                                        variantId: v.id,
+                                        colorName: displayColorName,
+                                        size: sz,
+                                        sku: comboSku,
+                                        currentStock: comboQty,
+                                      });
+                                    }}
+                                    className="px-2.5 py-1 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-colors cursor-pointer"
+                                  >
+                                    Adjust / Restock
+                                  </button>
+                                </td>
+                              </tr>
+                            );
+                          });
+                        })
+                      )}
+                    </tbody>
+                  </table>
+                </div>
               </div>
             </div>
-          </div>
           )}
 
           {/* MODULE 7: COUPONS & DEALS */}
@@ -1680,14 +1751,19 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* RESTOCK MODAL */}
+      {/* RESTOCK MODAL (Colour + Size Combination Level) */}
       {restockItem && (
         <div className="fixed inset-0 z-50 bg-black/60 backdrop-blur-xs flex items-center justify-center p-4">
           <div className="w-full max-w-sm bg-white rounded-3xl p-5 sm:p-6 shadow-2xl space-y-4 text-xs text-left animate-in zoom-in-95">
             <div className="flex items-center justify-between border-b border-[#F0F4F8] pb-3">
-              <h3 className="text-sm font-extrabold text-[#192E4D]">
-                Restock: {restockItem.colorName}
-              </h3>
+              <div>
+                <h3 className="text-sm font-extrabold text-[#192E4D]">
+                  Update Combination Stock
+                </h3>
+                <p className="text-[11px] text-[#08A9A2] font-bold">
+                  {restockItem.productName} • {restockItem.colorName} / {restockItem.size}
+                </p>
+              </div>
               <button
                 type="button"
                 aria-label="Close modal"
@@ -1698,17 +1774,58 @@ export const AdminDashboard: React.FC = () => {
               </button>
             </div>
 
-            <p className="text-[#697586]">
-              Current inventory in warehouse: <strong className="text-[#192E4D] font-black">{restockItem.currentStock} units</strong>
-            </p>
+            <div className="p-3 rounded-xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-1">
+              <div className="flex justify-between">
+                <span className="text-[#697586]">Combination SKU:</span>
+                <span className="font-mono font-bold text-[#192E4D]">{restockItem.sku}</span>
+              </div>
+              <div className="flex justify-between">
+                <span className="text-[#697586]">Current Stock:</span>
+                <strong className="text-[#192E4D] font-black">{restockItem.currentStock} pcs</strong>
+              </div>
+            </div>
+
+            <div className="grid grid-cols-2 gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  setRestockMode('add');
+                  setAddStockAmount(10);
+                }}
+                className={`py-2 rounded-xl font-bold border text-xs cursor-pointer ${
+                  restockMode === 'add'
+                    ? 'bg-[#08A9A2] text-white border-[#08A9A2]'
+                    : 'bg-white text-[#192E4D] border-[#E6EAF0]'
+                }`}
+              >
+                + Add Stock
+              </button>
+              <button
+                type="button"
+                onClick={() => {
+                  setRestockMode('set');
+                  setAddStockAmount(restockItem.currentStock);
+                }}
+                className={`py-2 rounded-xl font-bold border text-xs cursor-pointer ${
+                  restockMode === 'set'
+                    ? 'bg-[#192E4D] text-white border-[#192E4D]'
+                    : 'bg-white text-[#192E4D] border-[#E6EAF0]'
+                }`}
+              >
+                Set Exact Stock
+              </button>
+            </div>
 
             <div>
-              <label className="font-bold text-[#192E4D] block mb-1">Add Stock Quantity (Units)</label>
+              <label className="font-bold text-[#192E4D] block mb-1">
+                {restockMode === 'add' ? 'Quantity to Add (Units)' : 'New Exact Stock Quantity (Units)'}
+              </label>
               <input
                 type="number"
-                min="1"
+                min="0"
+                step="1"
                 value={addStockAmount}
-                onChange={(e) => setAddStockAmount(parseInt(e.target.value) || 0)}
+                onChange={(e) => setAddStockAmount(Math.max(0, parseInt(e.target.value, 10) || 0))}
                 className="w-full h-11 px-3.5 border border-[#E6EAF0] rounded-xl text-xs font-bold focus:outline-hidden focus:border-[#08A9A2]"
               />
             </div>
@@ -1724,14 +1841,26 @@ export const AdminDashboard: React.FC = () => {
               <button
                 type="button"
                 onClick={() => {
-                  const newTotal = restockItem.currentStock + addStockAmount;
-                  updateVariantStock(restockItem.productId, restockItem.variantId, newTotal);
-                  showNotice(`Stock updated: ${restockItem.colorName} now has ${newTotal} units`, 'success');
+                  const newTotal =
+                    restockMode === 'add'
+                      ? Math.max(0, restockItem.currentStock + Math.max(0, addStockAmount))
+                      : Math.max(0, addStockAmount);
+                  updateVariantStock(
+                    restockItem.productId,
+                    restockItem.variantId,
+                    newTotal,
+                    undefined,
+                    restockItem.size
+                  );
+                  showNotice(
+                    `Stock updated: ${restockItem.colorName} (${restockItem.size}) now has ${newTotal} units`,
+                    'success'
+                  );
                   setRestockItem(null);
                 }}
-                className="flex-1 h-11 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-all active:scale-[0.98] shadow-xs"
+                className="flex-1 h-11 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-all active:scale-[0.98] shadow-xs cursor-pointer"
               >
-                Confirm Restock
+                Save Stock
               </button>
             </div>
           </div>
