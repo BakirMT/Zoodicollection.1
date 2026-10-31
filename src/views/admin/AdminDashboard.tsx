@@ -223,11 +223,15 @@ export const AdminDashboard: React.FC = () => {
     setDeletingCoupon(null);
   };
 
-  const handleDeleteProductConfirm = () => {
+  const handleDeleteProductConfirm = async () => {
     if (!deletingProduct) return;
-    deleteProduct(deletingProduct.id);
-    showNotice(`Product "${deletingProduct.name}" deleted successfully from store & database`, 'success');
+    const target = deletingProduct;
     setDeletingProduct(null);
+    const res = await deleteProduct(target.id);
+    showNotice(
+      res.message || `Product "${target.name}" deleted successfully from store & database`,
+      res.success ? 'success' : 'error'
+    );
   };
 
   // Payment Receiver state (Admin only)

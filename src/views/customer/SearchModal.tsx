@@ -2,24 +2,37 @@ import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
 import { Search, X, TrendingUp } from 'lucide-react';
+import { isProductVisibleToCustomer } from '../../services/firestoreSync';
 
 export const SearchModal: React.FC = () => {
-  const { products, setActiveScreen } = useApp();
+  const { products: allProducts, setActiveScreen } = useApp();
   const [query, setQuery] = useState('');
 
+  const products = allProducts.filter((p) => isProductVisibleToCustomer(p));
   const popularSearches = ['Bomber Jacket', 'Red Jacket', 'Aeroknit', 'Backpack', 'Silk Dress'];
 
-  const filteredProducts = query.trim()
+  const qLower = query.trim().toLowerCase();
+  const filteredProducts = qLower
     ? products.filter(
         (p) =>
-          p.name?.toLowerCase().includes(query.toLowerCase()) ||
-          p.brand?.toLowerCase().includes(query.toLowerCase()) ||
-          p.description?.toLowerCase().includes(query.toLowerCase()) ||
-          p.tags?.some((t) => t.toLowerCase().includes(query.toLowerCase())) ||
+          p.name?.toLowerCase().includes(qLower) ||
+          p.brand?.toLowerCase().includes(qLower) ||
+          p.description?.toLowerCase().includes(qLower) ||
+          p.style?.toLowerCase().includes(qLower) ||
+          p.styleName?.toLowerCase().includes(qLower) ||
+          p.styleNumber?.toLowerCase().includes(qLower) ||
+          p.fabric?.toLowerCase().includes(qLower) ||
+          p.customColors?.toLowerCase().includes(qLower) ||
+          p.tags?.some((t) => t.toLowerCase().includes(qLower)) ||
+          p.structuredSpecifications?.some(
+            (s) =>
+              String(s.label || '').toLowerCase().includes(qLower) ||
+              String(s.value || '').toLowerCase().includes(qLower)
+          ) ||
           p.variants?.some(
             (v) =>
-              v.sku?.toLowerCase().includes(query.toLowerCase()) ||
-              v.colorName?.toLowerCase().includes(query.toLowerCase())
+              v.sku?.toLowerCase().includes(qLower) ||
+              v.colorName?.toLowerCase().includes(qLower)
           )
       )
     : [];

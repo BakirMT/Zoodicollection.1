@@ -2,11 +2,14 @@ import React from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
 import { Heart, ShoppingBag } from 'lucide-react';
+import { isProductVisibleToCustomer } from '../../services/firestoreSync';
 
 export const WishlistScreen: React.FC = () => {
   const { wishlistIds, products, setCustomerTab, setActiveScreen } = useApp();
 
-  const wishlistedProducts = products.filter((p) => wishlistIds.includes(p.id));
+  const wishlistedProducts = products.filter(
+    (p) => isProductVisibleToCustomer(p) && wishlistIds.includes(p.id)
+  );
 
   if (wishlistedProducts.length === 0) {
     return (

@@ -1,6 +1,7 @@
 import React, { useState } from 'react';
 import { Product } from '../types';
 import { useApp } from '../context/AppContext';
+import { getEffectiveProductPricing, isProductVisibleToCustomer } from '../services/firestoreSync';
 import { Heart, Star, ShoppingBag, ArrowRight, Check } from 'lucide-react';
 
 interface ProductSpotlightCardProps {
@@ -14,7 +15,7 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
   badgeLabel = 'Featured Product',
   onSelect,
 }) => {
-  if (!product) return null;
+  if (!product || !isProductVisibleToCustomer(product)) return null;
 
   const { setSelectedProductId, setActiveScreen, wishlistIds, toggleWishlist, addToCart } = useApp();
   const [selectedVariantIndex, setSelectedVariantIndex] = useState(0);
@@ -23,21 +24,16 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
   const activeVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
   const activeImage =
     activeVariant?.images?.[0] ||
+    product.additionalImages?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
 
   const isWishlisted = wishlistIds.includes(product.id);
 
-  const originalPrice = product.price ?? activeVariant?.price ?? 0;
-  const currentPrice =
-    product.salePrice && product.salePrice > 0 && product.salePrice < originalPrice
-      ? product.salePrice
-      : activeVariant?.salePrice && activeVariant.salePrice < originalPrice
-      ? activeVariant.salePrice
-      : originalPrice;
-  const hasDiscount = currentPrice < originalPrice;
-  const discountPercent = hasDiscount
-    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
-    : 0;
+  const { currentPrice, originalPrice, hasDiscount, discountPercent } =
+    getEffectiveProductPricing(product, activeVariant);
+
+  const totalStock = (product.variants || []).reduce((sum, v) => sum + (v.stock ?? 0), 0);
+  const isOutOfStock = totalStock <= 0;
 
   const handleOpenDetail = () => {
     setSelectedProductId(product.id);
@@ -47,6 +43,10 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isOutOfStock) {
+      handleOpenDetail();
+      return;
+    }
     const configuredColors = (product.variants || []).filter(
       (v) =>
         v.attributes?.isUnconfiguredDefault !== 'true' &&
@@ -87,15 +87,23 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
           src={activeImage}
           alt={product.name}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+          className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+            isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
+          }`}
           loading="lazy"
         />
 
-        {/* Discount Badge */}
-        {hasDiscount && (
-          <span className="absolute top-1.5 left-1.5 bg-[#F20D58] text-white font-black text-[9px] tracking-wider uppercase px-1.5 py-0.5 rounded-md shadow-xs">
-            -{discountPercent}%
+        {/* Discount or Out of Stock Badge */}
+        {isOutOfStock ? (
+          <span className="absolute top-1.5 left-1.5 bg-slate-800/90 text-white font-black text-[9px] tracking-wider uppercase px-1.5 py-0.5 rounded-md shadow-xs">
+            Sold Out
           </span>
+        ) : (
+          hasDiscount && (
+            <span className="absolute top-1.5 left-1.5 bg-[#F20D58] text-white font-black text-[9px] tracking-wider uppercase px-1.5 py-0.5 rounded-md shadow-xs">
+              -{discountPercent}%
+            </span>
+          )
         )}
 
         {/* Wishlist Button */}

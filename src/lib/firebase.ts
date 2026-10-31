@@ -1,5 +1,5 @@
 import { initializeApp, getApps, getApp, type FirebaseApp } from 'firebase/app';
-import { getFirestore, type Firestore } from 'firebase/firestore';
+import { getFirestore, initializeFirestore, type Firestore } from 'firebase/firestore';
 import { getAuth, type Auth } from 'firebase/auth';
 import { getStorage, type FirebaseStorage } from 'firebase/storage';
 import { getMessaging, getToken, onMessage, isSupported, type Messaging } from 'firebase/messaging';
@@ -31,11 +31,22 @@ if (!getApps().length) {
 
 export const firebaseApp = appInstance;
 
-// Firestore Database instance (connected to provisioned database)
-export const db: Firestore =
-  firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
-    ? getFirestore(firebaseApp, firebaseConfig.firestoreDatabaseId)
-    : getFirestore(firebaseApp);
+// Firestore Database instance (connected to provisioned database with ignoreUndefinedProperties enabled)
+function createFirestoreInstance(): Firestore {
+  const targetDbId =
+    firebaseConfig.firestoreDatabaseId && firebaseConfig.firestoreDatabaseId !== '(default)'
+      ? firebaseConfig.firestoreDatabaseId
+      : undefined;
+  try {
+    return targetDbId
+      ? initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true }, targetDbId)
+      : initializeFirestore(firebaseApp, { ignoreUndefinedProperties: true });
+  } catch {
+    return targetDbId ? getFirestore(firebaseApp, targetDbId) : getFirestore(firebaseApp);
+  }
+}
+
+export const db: Firestore = createFirestoreInstance();
 
 // Firebase Authentication instance
 export const auth: Auth = getAuth(firebaseApp);

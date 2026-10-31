@@ -1,6 +1,7 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
+import { isProductVisibleToCustomer, getEffectiveProductPricing } from '../../services/firestoreSync';
 import {
   ChevronLeft,
   Heart,
@@ -20,7 +21,7 @@ import {
 
 export const ProductDetailScreen: React.FC = () => {
   const {
-    products,
+    products: allProducts,
     selectedProductId,
     setActiveScreen,
     setCustomerTab,
@@ -31,7 +32,10 @@ export const ProductDetailScreen: React.FC = () => {
     addReview,
   } = useApp();
 
-  const product = products.find((p) => p.id === selectedProductId) || products[0];
+  const products = allProducts.filter((p) => isProductVisibleToCustomer(p));
+  const product = selectedProductId
+    ? products.find((p) => p.id === selectedProductId)
+    : products[0];
 
   // Do NOT preselect color variant or size automatically!
   const [selectedVariantIndex, setSelectedVariantIndex] = useState<number | null>(null);
@@ -103,24 +107,8 @@ export const ProductDetailScreen: React.FC = () => {
 
   const isWishlisted = wishlistIds.includes(product.id);
 
-  // Option-specific price override (e.g. for perfume volume 30ml / 50ml / 100ml)
-  const optionPriceEntry =
-    selectedSize && activeVariant?.optionPricing ? activeVariant.optionPricing[selectedSize] : undefined;
-
-  const originalPrice = optionPriceEntry?.price ?? activeVariant?.price ?? product.price ?? 0;
-  const currentPrice =
-    optionPriceEntry?.salePrice && optionPriceEntry.salePrice > 0 && optionPriceEntry.salePrice < originalPrice
-      ? optionPriceEntry.salePrice
-      : activeVariant?.salePrice && activeVariant.salePrice > 0 && activeVariant.salePrice < originalPrice
-      ? activeVariant.salePrice
-      : product.salePrice && product.salePrice > 0 && product.salePrice < originalPrice
-      ? product.salePrice
-      : originalPrice;
-
-  const hasDiscount = currentPrice < originalPrice;
-  const discountPercent = hasDiscount
-    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
-    : 0;
+  const { currentPrice, originalPrice, hasDiscount, discountPercent } =
+    getEffectiveProductPricing(product, activeVariant, selectedSize || undefined);
 
   // Variant size stock check
   const sizeStockMap = activeVariant?.sizeStock || {};

@@ -19,11 +19,12 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Product } from '../../types';
+import { isProductVisibleToCustomer } from '../../services/firestoreSync';
 
 export const HomeScreen: React.FC = () => {
   const {
     homepageSections,
-    products,
+    products: allCatalogProducts,
     mainCategories,
     setSelectedProductId,
     setSelectedCategorySlug,
@@ -32,6 +33,9 @@ export const HomeScreen: React.FC = () => {
     applyCouponCode,
     setIsCouponsModalOpen,
   } = useApp();
+
+  // Only show published & active products to customers
+  const products = allCatalogProducts.filter((p) => isProductVisibleToCustomer(p));
 
   // Active Hero Slide index
   const [currentSlideIndex, setCurrentSlideIndex] = useState(0);
@@ -574,15 +578,25 @@ export const HomeScreen: React.FC = () => {
           case 'product_carousel':
           case 'custom_collection':
           default: {
-            let sectionProducts = section.productIds
-              ? products.filter((p) => section.productIds?.includes(p.id))
-              : section.type === 'best_sellers'
-              ? products.filter((p) => p.bestSeller)
-              : section.type === 'trending'
-              ? products.filter((p) => p.trending)
-              : section.type === 'new_arrivals'
-              ? products.filter((p) => p.newArrival)
-              : products.slice(0, 4);
+            const matchesFlag = (p: Product) => {
+              if (section.type === 'best_sellers') return Boolean(p.bestSeller);
+              if (section.type === 'trending') return Boolean(p.trending);
+              if (section.type === 'new_arrivals') return Boolean(p.newArrival);
+              if (
+                section.type === 'featured_collections' ||
+                section.type === 'for_you' ||
+                section.type === 'product_carousel'
+              ) {
+                return Boolean(p.featured);
+              }
+              return false;
+            };
+
+            const idSet = new Set(section.productIds || []);
+            let sectionProducts = products.filter((p) => matchesFlag(p) || idSet.has(p.id));
+            if (sectionProducts.length === 0) {
+              sectionProducts = products.slice(0, 4);
+            }
 
             if (sectionProducts.length === 0) return null;
 

@@ -503,7 +503,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   };
 
   // Main Submit Handler
-  const handleFormSubmit = (statusOverride?: 'published' | 'draft') => {
+  const handleFormSubmit = async (statusOverride?: 'published' | 'draft') => {
     setValidationError(null);
     const finalStatus = statusOverride || pStatus;
 
@@ -607,14 +607,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     // Final sizes: strictly what the admin manually selected (never auto-filled!)
     const finalSizes = variantType === 'none' ? [] : [...pAvailableSizes];
 
-    // Build sizeStock map for variants
-    const buildSizeStock = (totalStock: number, existingSizeStock?: Record<string, number>) => {
+    // Build sizeStock map for variants (accurately reflects updated stock, including 0 stock)
+    const buildSizeStock = (
+      totalStock: number,
+      existingSizeStock?: Record<string, number>,
+      forceRecalculate?: boolean
+    ) => {
       if (finalSizes.length === 0) return undefined;
       const map: Record<string, number> = {};
+      if (totalStock <= 0) {
+        finalSizes.forEach((sz) => {
+          map[sz] = 0;
+        });
+        return map;
+      }
       const perSize = Math.max(1, Math.floor(totalStock / finalSizes.length));
       finalSizes.forEach((sz) => {
         map[sz] =
-          existingSizeStock && existingSizeStock[sz] !== undefined
+          !forceRecalculate && existingSizeStock && existingSizeStock[sz] !== undefined
             ? existingSizeStock[sz]
             : perSize;
       });
@@ -626,27 +636,67 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       ...pAdditionalImages.filter((u) => u.trim() !== ''),
     ];
 
+    const previousBasePrice = editingProduct?.price;
+    const previousSalePrice = editingProduct?.salePrice;
+    const previousFirstStock = editingProduct?.variants?.[0]?.stock;
+    const baseStockChanged =
+      editingProduct !== null &&
+      previousFirstStock !== undefined &&
+      validStock !== previousFirstStock;
+
     // Prepare variants:
     // If admin explicitly added color variants or entered pCustomColors, use those.
     // Otherwise create an internal carrier variant marked isUnconfiguredDefault: 'true' so the storefront does NOT show a fake color swatch.
     const finalVariants: ProductVariant[] =
       pVariants.length > 0
-        ? pVariants.map((v) => ({
-            ...v,
-            price: v.price > 0 ? v.price : numericPrice,
-            salePrice:
-              v.salePrice && v.salePrice > 0 && v.salePrice < (v.price || numericPrice)
+        ? pVariants.map((v, idx) => {
+            // Update variant price if it matched the old base price or wasn't overridden
+            const effectiveVarPrice =
+              !v.price || v.price <= 0 || (previousBasePrice !== undefined && v.price === previousBasePrice)
+                ? numericPrice
+                : v.price;
+
+            // Update variant salePrice if product salePrice was updated or cleared
+            const effectiveVarSalePrice =
+              validSalePrice !== undefined && validSalePrice < effectiveVarPrice
+                ? validSalePrice
+                : validSalePrice === undefined &&
+                  previousSalePrice !== undefined &&
+                  v.salePrice === previousSalePrice
+                ? undefined
+                : v.salePrice && v.salePrice > 0 && v.salePrice < effectiveVarPrice
                 ? v.salePrice
-                : validSalePrice,
-            stock: v.stock >= 0 ? v.stock : validStock,
-            sizeStock: buildSizeStock(v.stock >= 0 ? v.stock : validStock, v.sizeStock),
-            images:
-              v.images && v.images.length > 0
-                ? v.images
-                : allProductImages.length > 0
+                : undefined;
+
+            // Update variant stock if base stock in Section 7 was edited
+            const effectiveVarStock =
+              baseStockChanged && (idx === 0 || pVariants.length === 1)
+                ? validStock
+                : v.stock >= 0
+                ? v.stock
+                : validStock;
+
+            // Update primary variant images if Section 3 primary/additional images were updated
+            const effectiveVarImages =
+              idx === 0 && allProductImages.length > 0
                 ? allProductImages
-                : [],
-          }))
+                : v.images && v.images.length > 0
+                ? v.images
+                : allProductImages;
+
+            return {
+              ...v,
+              price: effectiveVarPrice,
+              salePrice: effectiveVarSalePrice,
+              stock: effectiveVarStock,
+              sizeStock: buildSizeStock(
+                effectiveVarStock,
+                v.sizeStock,
+                baseStockChanged || effectiveVarStock === 0
+              ),
+              images: effectiveVarImages,
+            };
+          })
         : [
             {
               id: editingProduct?.variants?.[0]?.id || `var_${Date.now()}`,
@@ -657,7 +707,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               price: numericPrice,
               salePrice: validSalePrice,
               stock: validStock,
-              sizeStock: buildSizeStock(validStock, editingProduct?.variants?.[0]?.sizeStock),
+              sizeStock: buildSizeStock(
+                validStock,
+                editingProduct?.variants?.[0]?.sizeStock,
+                true
+              ),
               attributes: pCustomColors.trim()
                 ? undefined
                 : { isUnconfiguredDefault: 'true' },
@@ -725,11 +779,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       structuredSpecifications: finalStructuredSpecs,
     };
 
-    saveProduct(productPayload);
+    const result = await saveProduct(productPayload);
+    if (!result.success) {
+      setValidationError(result.error || 'Failed to save product to Firebase database.');
+      return;
+    }
+
     onSaveSuccess(
       editingProduct
-        ? `Product "${productPayload.name}" updated successfully!`
-        : `Product "${productPayload.name}" saved to catalog!`
+        ? `Product "${productPayload.name}" updated and synced to Firebase!`
+        : `Product "${productPayload.name}" saved and published to Firebase!`
     );
     onClose();
   };

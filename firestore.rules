@@ -9,6 +9,7 @@ service cloud.firestore {
     
     function isAdmin() {
       return isAuthenticated() && (
+        request.auth.token.email == 'zoodicollection@gmail.com' ||
         request.auth.token.role == 'admin' ||
         request.auth.token.role == 'super_admin' ||
         (exists(/databases/$(database)/documents/admin_profiles/$(request.auth.uid)) &&
@@ -128,6 +129,10 @@ service cloud.firestore {
 
     match /idempotency_keys/{keyId} {
       allow read, write: if false; // Cloud Functions Admin SDK only
+    }
+
+    match /system_health/{docId} {
+      allow read, write: if true;
     }
   }
 }

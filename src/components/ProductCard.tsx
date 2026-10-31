@@ -1,6 +1,7 @@
 import React from 'react';
 import { Product } from '../types';
 import { useApp } from '../context/AppContext';
+import { getEffectiveProductPricing, isProductVisibleToCustomer } from '../services/firestoreSync';
 import { Heart, Star, ShoppingBag } from 'lucide-react';
 
 interface ProductCardProps {
@@ -10,7 +11,7 @@ interface ProductCardProps {
 }
 
 export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, compact = false }) => {
-  if (!product) return null;
+  if (!product || !isProductVisibleToCustomer(product)) return null;
 
   const { setSelectedProductId, setActiveScreen, wishlistIds, toggleWishlist, addToCart } = useApp();
 
@@ -18,19 +19,14 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
   const primaryVariant = product.variants?.[0];
   const primaryImage =
     primaryVariant?.images?.[0] ||
+    product.additionalImages?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
 
-  const originalPrice = product.price ?? primaryVariant?.price ?? 0;
-  const currentPrice =
-    product.salePrice && product.salePrice > 0 && product.salePrice < originalPrice
-      ? product.salePrice
-      : primaryVariant?.salePrice && primaryVariant.salePrice < originalPrice
-      ? primaryVariant.salePrice
-      : originalPrice;
-  const hasDiscount = currentPrice < originalPrice;
-  const discountPercent = hasDiscount
-    ? Math.round(((originalPrice - currentPrice) / originalPrice) * 100)
-    : 0;
+  const { currentPrice, originalPrice, hasDiscount, discountPercent } =
+    getEffectiveProductPricing(product, primaryVariant);
+
+  const totalStock = (product.variants || []).reduce((sum, v) => sum + (v.stock ?? 0), 0);
+  const isOutOfStock = totalStock <= 0;
 
   const handleClick = () => {
     setSelectedProductId(product.id);
@@ -40,6 +36,10 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
 
   const handleQuickAdd = (e: React.MouseEvent) => {
     e.stopPropagation();
+    if (isOutOfStock) {
+      handleClick();
+      return;
+    }
     const configuredColors = (product.variants || []).filter(
       (v) =>
         v.attributes?.isUnconfiguredDefault !== 'true' &&
@@ -80,19 +80,31 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
           src={primaryImage}
           alt={product.name}
           referrerPolicy="no-referrer"
-          className="w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300"
+          className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+            isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
+          }`}
           loading="lazy"
         />
 
-        {/* Discount Badge */}
-        {hasDiscount && (
+        {/* Discount or Out of Stock Badge */}
+        {isOutOfStock ? (
           <span
-            className={`absolute top-2 left-2 bg-[#F20D58] text-white font-black tracking-wider uppercase rounded-md shadow-xs ${
-              compact ? 'text-[9px] px-1.5 py-0.5' : 'text-[11px] px-2 py-0.5'
+            className={`absolute top-2 left-2 bg-slate-800/90 text-white font-black tracking-wider uppercase rounded-md shadow-xs ${
+              compact ? 'text-[9px] px-1.5 py-0.5' : 'text-[10px] px-2 py-0.5'
             }`}
           >
-            {discountPercent}% OFF
+            Out of Stock
           </span>
+        ) : (
+          hasDiscount && (
+            <span
+              className={`absolute top-2 left-2 bg-[#F20D58] text-white font-black tracking-wider uppercase rounded-md shadow-xs ${
+                compact ? 'text-[9px] px-1.5 py-0.5' : 'text-[11px] px-2 py-0.5'
+              }`}
+            >
+              {discountPercent}% OFF
+            </span>
+          )
         )}
 
         {/* Wishlist Button */}

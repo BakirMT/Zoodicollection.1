@@ -3,15 +3,18 @@ import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
 import { CategoryIcon } from '../../components/CategoryIcon';
 import { ChevronRight } from 'lucide-react';
+import { isProductVisibleToCustomer, getEffectiveProductPricing } from '../../services/firestoreSync';
 
 export const CategoriesScreen: React.FC = () => {
   const {
     mainCategories,
     subCategories,
     subSubCategories,
-    products,
+    products: allProducts,
     selectedCategorySlug,
   } = useApp();
+
+  const products = allProducts.filter((p) => isProductVisibleToCustomer(p));
 
   // Active Main Category ID (default to selectedCategorySlug or first category)
   const [activeMainId, setActiveMainId] = useState<string>(
@@ -59,12 +62,14 @@ export const CategoriesScreen: React.FC = () => {
     filteredProducts = filteredProducts.filter((p) => p.variants?.some((v) => v.stock > 0));
   }
 
-  // Sort
+  // Sort using effective customer price (respecting salePrice)
   filteredProducts.sort((a, b) => {
-    if (sortBy === 'price_asc') return a.price - b.price;
-    if (sortBy === 'price_desc') return b.price - a.price;
+    const priceA = getEffectiveProductPricing(a).currentPrice;
+    const priceB = getEffectiveProductPricing(b).currentPrice;
+    if (sortBy === 'price_asc') return priceA - priceB;
+    if (sortBy === 'price_desc') return priceB - priceA;
     if (sortBy === 'rating') return b.rating - a.rating;
-    return 0; // featured
+    return 0; // featured (newest first from Firestore subscription)
   });
 
   return (

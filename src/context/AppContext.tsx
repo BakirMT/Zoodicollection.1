@@ -77,6 +77,12 @@ import {
   firestoreSaveCategoryTemplate,
   firestoreDeleteCategoryTemplate,
   seedFirestoreIfEmpty,
+  normalizeProductFromFirestore,
+  isProductVisibleToCustomer,
+  getEffectiveProductPricing,
+  getDeletedProductIds,
+  markProductIdDeleted,
+  unmarkProductIdDeleted,
 } from '../services/firestoreSync';
 
 export type CustomerTab = 'home' | 'categories' | 'wishlist' | 'cart' | 'account';
@@ -196,8 +202,8 @@ interface AppContextType {
   resetCategoryTemplatesToDefault: () => void;
 
   // Admin Catalog & Content operations
-  saveProduct: (product: Product) => void;
-  deleteProduct: (productId: string) => { success: boolean; message?: string };
+  saveProduct: (product: Product) => Promise<{ success: boolean; error?: string }>;
+  deleteProduct: (productId: string) => Promise<{ success: boolean; message?: string }>;
   saveCategory: (type: 'main' | 'sub' | 'subsub', item: any) => void;
   deleteCategory: (type: 'main' | 'sub' | 'subsub', id: string) => { success: boolean; message?: string };
   reorderMainCategories: (newOrdered: MainCategory[]) => void;
@@ -273,17 +279,24 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Stored state with local persistence and INR version migration
   const [products, setProducts] = useState<Product[]>(() => {
     try {
+      const deletedIds = getDeletedProductIds();
       const ver = localStorage.getItem('zoodi_inr_v2');
       if (!ver) {
         localStorage.setItem('zoodi_inr_v2', 'true');
-        localStorage.setItem('zoodi_products', JSON.stringify(INITIAL_PRODUCTS));
+        const initialFiltered = INITIAL_PRODUCTS.filter((p) => !deletedIds.has(p.id)).map((p) =>
+          normalizeProductFromFirestore(p, p.id)
+        );
+        localStorage.setItem('zoodi_products', JSON.stringify(initialFiltered));
         localStorage.setItem('zoodi_coupons', JSON.stringify(INITIAL_COUPONS));
         localStorage.setItem('zoodi_orders', JSON.stringify(INITIAL_ORDERS));
         localStorage.removeItem('zoodi_cart');
-        return INITIAL_PRODUCTS;
+        return initialFiltered;
       }
       const saved = localStorage.getItem('zoodi_products');
-      return saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+      const rawList: Product[] = saved ? JSON.parse(saved) : INITIAL_PRODUCTS;
+      return (Array.isArray(rawList) ? rawList : INITIAL_PRODUCTS)
+        .filter((p) => p && p.id && !deletedIds.has(p.id))
+        .map((p) => normalizeProductFromFirestore(p, p.id));
     } catch {
       return INITIAL_PRODUCTS;
     }
@@ -579,18 +592,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [isNotificationCenterOpen, setIsNotificationCenterOpen] = useState(false);
   const [isNotifPreferencesOpen, setIsNotifPreferencesOpen] = useState(false);
 
-  // Sync to localStorage & IndexedDB
+  // Sync local IndexedDB draft state
   useEffect(() => {
-    dbLoadCoupons().then((dbCoupons) => {
-      if (dbCoupons && dbCoupons.length > 0) {
-        setCoupons(dbCoupons);
-      }
-    });
-    dbLoadHomepageSections().then((dbSecs) => {
-      if (dbSecs && dbSecs.length > 0) {
-        setHomepageSections(dbSecs);
-      }
-    });
     dbLoadHomepageDraft().then((dbDraft) => {
       if (dbDraft && dbDraft.length > 0) {
         setHomepageDraft(dbDraft);
@@ -699,6 +702,78 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   useEffect(() => {
     localStorage.setItem('zoodi_products', JSON.stringify(products));
+  }, [products]);
+
+  // Synchronize shopping cart items with live Firestore product prices, stock, and availability
+  useEffect(() => {
+    if (products.length === 0) return;
+    setCart((prevCart) => {
+      if (prevCart.length === 0) return prevCart;
+      let changed = false;
+      const updatedCart: CartItem[] = [];
+
+      for (const item of prevCart) {
+        const liveProd = products.find((p) => p.id === item.productId);
+        if (!liveProd || !isProductVisibleToCustomer(liveProd)) {
+          changed = true;
+          continue;
+        }
+        const liveVariant =
+          liveProd.variants.find((v) => v.id === item.variantId) || liveProd.variants[0];
+        if (!liveVariant) {
+          changed = true;
+          continue;
+        }
+        const normalizedSize =
+          item.size && item.size !== 'One Size' && item.size !== 'default'
+            ? item.size
+            : undefined;
+        const stockCheck = checkVariantStock(
+          liveVariant.stock,
+          liveVariant.sizeStock,
+          normalizedSize,
+          1
+        );
+        if (stockCheck.remaining <= 0) {
+          changed = true;
+          continue;
+        }
+        const { currentPrice } = getEffectiveProductPricing(
+          liveProd,
+          liveVariant,
+          normalizedSize
+        );
+        const clampedQty = Math.min(item.quantity, stockCheck.remaining);
+        const latestImg =
+          liveVariant.images?.[0] ||
+          item.image ||
+          'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
+
+        if (
+          item.price !== currentPrice ||
+          item.maxStock !== stockCheck.remaining ||
+          item.quantity !== clampedQty ||
+          item.productName !== liveProd.name ||
+          item.brand !== liveProd.brand ||
+          item.image !== latestImg
+        ) {
+          changed = true;
+          updatedCart.push({
+            ...item,
+            productName: liveProd.name,
+            brand: liveProd.brand,
+            image: latestImg,
+            price: currentPrice,
+            quantity: clampedQty,
+            maxStock: stockCheck.remaining,
+          });
+        } else {
+          updatedCart.push(item);
+        }
+      }
+
+      return changed ? updatedCart : prevCart;
+    });
   }, [products]);
 
   useEffect(() => {
@@ -1068,18 +1143,34 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     size?: string,
     quantity: number = 1
   ): { success: boolean; message?: string } => {
-    const stockCheck = checkVariantStock(variant.stock, variant.sizeStock, size, quantity);
+    const liveProduct = products.find((p) => p.id === product.id) || product;
+    if (!isProductVisibleToCustomer(liveProduct)) {
+      return { success: false, message: 'This product is no longer available.' };
+    }
+    const liveVariant =
+      liveProduct.variants.find((v) => v.id === variant.id) ||
+      liveProduct.variants[0] ||
+      variant;
+
+    const normalizedSize =
+      size && size !== 'One Size' && size !== 'default' ? size : undefined;
+
+    const stockCheck = checkVariantStock(
+      liveVariant.stock,
+      liveVariant.sizeStock,
+      normalizedSize,
+      quantity
+    );
     if (!stockCheck.isAvailable) {
       return { success: false, message: stockCheck.message };
     }
 
-    const effectivePrice =
-      product.salePrice && product.salePrice > 0 && product.salePrice < product.price
-        ? product.salePrice
-        : variant.salePrice && variant.salePrice < variant.price
-        ? variant.salePrice
-        : product.price ?? variant.price;
-    const cartItemId = `${product.id}_${variant.id}_${size || 'default'}`;
+    const { currentPrice: effectivePrice } = getEffectiveProductPricing(
+      liveProduct,
+      liveVariant,
+      normalizedSize
+    );
+    const cartItemId = `${liveProduct.id}_${liveVariant.id}_${size || 'default'}`;
 
     setCart((prev) => {
       const existing = prev.find((item) => item.id === cartItemId);
@@ -1089,18 +1180,27 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           return prev;
         }
         return prev.map((item) =>
-          item.id === cartItemId ? { ...item, quantity: newQty } : item
+          item.id === cartItemId
+            ? {
+                ...item,
+                price: effectivePrice,
+                maxStock: stockCheck.remaining,
+                quantity: newQty,
+              }
+            : item
         );
       } else {
         const newItem: CartItem = {
           id: cartItemId,
-          productId: product.id,
-          productName: product.name,
-          brand: product.brand,
-          variantId: variant.id,
-          colorName: variant.colorName,
-          colorCode: variant.colorCode,
-          image: variant.images[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
+          productId: liveProduct.id,
+          productName: liveProduct.name,
+          brand: liveProduct.brand,
+          variantId: liveVariant.id,
+          colorName: liveVariant.colorName,
+          colorCode: liveVariant.colorCode,
+          image:
+            liveVariant.images[0] ||
+            'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
           size,
           price: effectivePrice,
           quantity,
@@ -1188,7 +1288,51 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, error: 'Your cart is empty' };
     }
 
-    const subtotal = cart.reduce((sum, item) => sum + item.price * item.quantity, 0);
+    // Re-validate every cart item against latest live Firestore product prices & stock
+    const verifiedCartItems: CartItem[] = [];
+    for (const item of cart) {
+      const liveProd = products.find((p) => p.id === item.productId);
+      if (!liveProd || !isProductVisibleToCustomer(liveProd)) {
+        return {
+          success: false,
+          error: `"${item.productName}" is no longer available in the catalog. Please review your cart.`,
+        };
+      }
+      const liveVar =
+        liveProd.variants.find((v) => v.id === item.variantId) || liveProd.variants[0];
+      if (!liveVar) {
+        return {
+          success: false,
+          error: `Selected variant for "${liveProd.name}" is no longer available.`,
+        };
+      }
+      const normalizedSize =
+        item.size && item.size !== 'One Size' && item.size !== 'default'
+          ? item.size
+          : undefined;
+      const stockCheck = checkVariantStock(
+        liveVar.stock,
+        liveVar.sizeStock,
+        normalizedSize,
+        item.quantity
+      );
+      if (!stockCheck.isAvailable) {
+        return {
+          success: false,
+          error: `${liveProd.name}: ${stockCheck.message || 'Insufficient stock available'}`,
+        };
+      }
+      const { currentPrice } = getEffectiveProductPricing(liveProd, liveVar, normalizedSize);
+      verifiedCartItems.push({
+        ...item,
+        productName: liveProd.name,
+        brand: liveProd.brand,
+        price: currentPrice,
+        maxStock: stockCheck.remaining,
+      });
+    }
+
+    const subtotal = verifiedCartItems.reduce((sum, item) => sum + item.price * item.quantity, 0);
     const pricing = calculateOrderPricing({
       subtotal,
       couponDiscountPercentage: activeCoupon?.discountPercentage,
@@ -1218,7 +1362,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       customerName: address.name,
       customerEmail: customerProfile.email,
       customerPhone: address.phone,
-      items: [...cart],
+      items: [...verifiedCartItems],
       amounts: {
         subtotal: pricing.subtotal,
         discount: pricing.discount,
@@ -1570,78 +1714,109 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   };
 
   // Admin catalog actions
-  const saveProduct = (product: Product) => {
-    // Sanitize product variants so prices and default variant are completely consistent
-    const rawVariants = product.variants && product.variants.length > 0 ? product.variants : [];
-    const defaultVariant: ProductVariant = {
-      id: `var_${Date.now()}`,
-      colorName: 'Standard',
-      colorCode: '#192E4D',
-      images: [
-        'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=600&q=80',
-      ],
-      sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
-      price: product.price,
-      salePrice: product.salePrice && product.salePrice < product.price ? product.salePrice : undefined,
-      stock: 25,
-      sizeStock: { S: 5, M: 10, L: 8, XL: 2 },
-    };
-
-    const variants = (rawVariants.length > 0 ? rawVariants : [defaultVariant]).map((v) => {
-      const vPrice = typeof v.price === 'number' && v.price > 0 ? v.price : product.price;
-      const vSalePrice =
-        typeof v.salePrice === 'number' && v.salePrice > 0 && v.salePrice < vPrice
-          ? v.salePrice
-          : product.salePrice && product.salePrice > 0 && product.salePrice < vPrice
+  const saveProduct = async (product: Product): Promise<{ success: boolean; error?: string }> => {
+    try {
+      unmarkProductIdDeleted(product.id);
+      const rawVariants = product.variants && product.variants.length > 0 ? product.variants : [];
+      const validTopSalePrice =
+        typeof product.salePrice === 'number' &&
+        !Number.isNaN(product.salePrice) &&
+        product.salePrice > 0 &&
+        product.salePrice < product.price
           ? product.salePrice
           : undefined;
-      return {
-        ...v,
-        price: vPrice,
-        salePrice: vSalePrice,
+
+      const defaultVariant: ProductVariant = {
+        id: `var_${Date.now()}`,
+        colorName: '',
+        colorCode: '#192E4D',
+        images: product.additionalImages || [],
+        sku: `SKU-${Math.floor(1000 + Math.random() * 9000)}`,
+        price: product.price,
+        salePrice: validTopSalePrice,
+        stock: 20,
+        attributes: { isUnconfiguredDefault: 'true' },
       };
-    });
 
-    const sanitizedProduct: Product = {
-      ...product,
-      variants,
-    };
+      const variants = (rawVariants.length > 0 ? rawVariants : [defaultVariant]).map((v) => {
+        const vPrice = typeof v.price === 'number' && v.price > 0 ? v.price : product.price;
+        // If product.salePrice is set, or variant has its own salePrice < vPrice:
+        // Note: if admin cleared product.salePrice on a single-variant product, clear variant.salePrice too
+        const isSingleCarrier = rawVariants.length <= 1;
+        const vSalePrice = isSingleCarrier
+          ? validTopSalePrice
+          : typeof v.salePrice === 'number' && v.salePrice > 0 && v.salePrice < vPrice
+          ? v.salePrice
+          : validTopSalePrice && validTopSalePrice < vPrice
+          ? validTopSalePrice
+          : undefined;
+        const vStock =
+          typeof v.stock === 'number' && !Number.isNaN(v.stock) ? Math.max(0, v.stock) : 0;
 
-    const isEdit = products.some((p) => p.id === sanitizedProduct.id);
-    if (isEdit) {
-      setProducts((prev) => prev.map((p) => (p.id === sanitizedProduct.id ? sanitizedProduct : p)));
-      recordAudit(
-        'PRODUCT_UPDATE',
-        `Updated product: ${sanitizedProduct.name} (${sanitizedProduct.id}) - Base Price ₹${sanitizedProduct.price}`
+        return {
+          ...v,
+          price: vPrice,
+          salePrice: vSalePrice,
+          stock: vStock,
+        };
+      });
+
+      const sanitizedProduct: Product = normalizeProductFromFirestore(
+        {
+          ...product,
+          salePrice: validTopSalePrice,
+          variants,
+          updatedAt: new Date().toISOString(),
+        },
+        product.id
       );
-    } else {
-      setProducts((prev) => [sanitizedProduct, ...prev]);
-      recordAudit(
-        'PRODUCT_CREATE',
-        `Created product: ${sanitizedProduct.name} (${sanitizedProduct.id}) - Base Price ₹${sanitizedProduct.price}`
-      );
-      if (adminNotifSettings.enableCatalogueAlerts) {
-        sendNotification({
-          recipientRole: 'admin',
-          type: 'catalogue_update',
-          title: 'Product Published 🏷️',
-          message: `Product "${sanitizedProduct.name}" added to store catalogue.`,
-          deepLink: 'admin:products',
-        });
+
+      const isEdit = products.some((p) => p.id === sanitizedProduct.id);
+      if (isEdit) {
+        setProducts((prev) =>
+          prev.map((p) => (p.id === sanitizedProduct.id ? sanitizedProduct : p))
+        );
+        recordAudit(
+          'PRODUCT_UPDATE',
+          `Updated product: ${sanitizedProduct.name} (${sanitizedProduct.id}) - Base Price ₹${sanitizedProduct.price}`
+        );
+      } else {
+        setProducts((prev) => [sanitizedProduct, ...prev]);
+        recordAudit(
+          'PRODUCT_CREATE',
+          `Created product: ${sanitizedProduct.name} (${sanitizedProduct.id}) - Base Price ₹${sanitizedProduct.price}`
+        );
+        if (adminNotifSettings.enableCatalogueAlerts) {
+          sendNotification({
+            recipientRole: 'admin',
+            type: 'catalogue_update',
+            title: 'Product Published 🏷️',
+            message: `Product "${sanitizedProduct.name}" added to store catalogue.`,
+            deepLink: 'admin:products',
+          });
+        }
       }
-    }
 
-    // Write to Cloud Firestore for real-time synchronization across all devices
-    firestoreSaveProduct(sanitizedProduct).catch((err) => {
-      console.warn('[AppContext] Firestore write failed:', err);
-    });
+      // Write to Cloud Firestore and await completion so caller knows it persisted
+      await firestoreSaveProduct(sanitizedProduct);
+      return { success: true };
+    } catch (err: any) {
+      console.error('[AppContext] Firestore write failed:', err);
+      return {
+        success: false,
+        error: err?.message || 'Failed to save product to Firebase database.',
+      };
+    }
   };
 
-  const deleteProduct = (productId: string): { success: boolean; message?: string } => {
+  const deleteProduct = async (
+    productId: string
+  ): Promise<{ success: boolean; message?: string }> => {
     const prod = products.find((p) => p.id === productId);
     const prodName = prod?.name || productId;
 
-    // 1. Remove from products state & storage
+    // 1. Mark product ID as permanently deleted and remove from products state & storage
+    markProductIdDeleted(productId);
     setProducts((prev) => {
       const next = prev.filter((p) => p.id !== productId);
       try {
@@ -1668,7 +1843,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           newDeals = s.dealProducts.filter((d) => d.productId !== productId);
           changed = true;
         }
-        return changed ? { ...s, productIds: newIds, dealProducts: newDeals, updatedAt: new Date().toISOString() } : s;
+        return changed
+          ? { ...s, productIds: newIds, dealProducts: newDeals, updatedAt: new Date().toISOString() }
+          : s;
       });
       firestoreSaveHomepageSections(cleaned).catch(console.warn);
       return cleaned;
@@ -1677,11 +1854,16 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     recordAudit('PRODUCT_DELETE', `Archived and deleted product: ${prodName} (${productId})`);
 
     // 4. Delete from Cloud Firestore so it syncs deletion to all client browsers
-    firestoreDeleteProduct(productId).catch((err) => {
-      console.warn('[AppContext] Firestore delete failed:', err);
-    });
-
-    return { success: true, message: `Product "${prodName}" deleted.` };
+    try {
+      await firestoreDeleteProduct(productId);
+      return { success: true, message: `Product "${prodName}" deleted from store & Firebase.` };
+    } catch (err: any) {
+      console.error('[AppContext] Firestore delete failed:', err);
+      return {
+        success: false,
+        message: err?.message || `Failed to delete "${prodName}" from Firebase.`,
+      };
+    }
   };
 
   const saveCategory = (type: 'main' | 'sub' | 'subsub', item: any) => {
