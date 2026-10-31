@@ -166,6 +166,7 @@ export type AdminModule =
   | 'dashboard'
   | 'products'
   | 'categories'
+  | 'category_templates'
   | 'homepage_builder'
   | 'orders'
   | 'inventory'
@@ -184,7 +185,7 @@ export function hasAdminPermission(role: AdminRole, module: AdminModule): boolea
 
   switch (role) {
     case 'product_manager':
-      return ['dashboard', 'products', 'categories', 'inventory', 'reviews', 'notifications', 'flutter_export'].includes(module);
+      return ['dashboard', 'products', 'categories', 'category_templates', 'inventory', 'reviews', 'notifications', 'flutter_export'].includes(module);
     case 'order_manager':
       return ['dashboard', 'orders', 'inventory', 'customers', 'support', 'notifications', 'flutter_export'].includes(module);
     case 'inventory_manager':

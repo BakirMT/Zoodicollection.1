@@ -21,6 +21,7 @@ import {
   AdminNotificationSettings,
   CustomerNotificationPreferences,
   NotificationBroadcastCampaign,
+  CategorySpecificationTemplate,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -38,6 +39,7 @@ import {
   INITIAL_ADMIN_NOTIFICATION_SETTINGS,
   INITIAL_NOTIFICATION_CAMPAIGNS,
 } from '../data/seedData';
+import { DEFAULT_CATEGORY_TEMPLATES } from '../data/categoryTemplates';
 import { NotificationService } from '../services/notificationService';
 import {
   calculateOrderPricing,
@@ -61,6 +63,7 @@ import {
   subscribeToHomepageSections,
   subscribeToCoupons,
   subscribeToOrders,
+  subscribeToCategoryTemplates,
   firestoreSaveProduct,
   firestoreDeleteProduct,
   firestoreSaveCategory,
@@ -71,6 +74,8 @@ import {
   firestoreUpdateOrderStatus,
   firestoreSaveCoupon,
   firestoreDeleteCoupon,
+  firestoreSaveCategoryTemplate,
+  firestoreDeleteCategoryTemplate,
   seedFirestoreIfEmpty,
 } from '../services/firestoreSync';
 
@@ -80,6 +85,7 @@ export type AdminModuleTab =
   | 'dashboard'
   | 'products'
   | 'categories'
+  | 'category_templates'
   | 'homepage_builder'
   | 'orders'
   | 'inventory'
@@ -182,6 +188,12 @@ interface AppContextType {
   adminLogout: () => void;
   auditLogs: AuditLog[];
   adminUsers: AdminUser[];
+
+  // Category Specification Templates
+  categoryTemplates: CategorySpecificationTemplate[];
+  saveCategoryTemplate: (template: CategorySpecificationTemplate) => void;
+  deleteCategoryTemplate: (templateId: string) => void;
+  resetCategoryTemplatesToDefault: () => void;
 
   // Admin Catalog & Content operations
   saveProduct: (product: Product) => void;
@@ -311,6 +323,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return saved ? JSON.parse(saved) : INITIAL_COUPONS;
   });
 
+  const [categoryTemplates, setCategoryTemplates] = useState<CategorySpecificationTemplate[]>(() => {
+    try {
+      const saved = localStorage.getItem('zoodi_category_templates');
+      return saved ? JSON.parse(saved) : DEFAULT_CATEGORY_TEMPLATES;
+    } catch {
+      return DEFAULT_CATEGORY_TEMPLATES;
+    }
+  });
+
   const [activeCoupon, setActiveCoupon] = useState<Coupon | null>(null);
   const [couponError, setCouponError] = useState<string | null>(null);
   const [isCouponsModalOpen, setIsCouponsModalOpen] = useState<boolean>(false);
@@ -380,25 +401,75 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   });
 
   const [cart, setCart] = useState<CartItem[]>(() => {
-    const saved = localStorage.getItem('zoodi_cart');
-    return saved
-      ? JSON.parse(saved)
-      : [
-          {
-            id: 'cart_init_1',
-            productId: 'prod_jacket_01',
-            productName: 'ZOODI Signature All-Weather Bomber Jacket',
-            brand: 'ZOODI Collection',
-            variantId: 'var_jk_red',
-            colorName: 'Crimson Red',
-            colorCode: '#D91E36',
-            image: 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
-            size: 'M',
-            price: 2499.0,
-            quantity: 1,
-            maxStock: 8,
-          },
-        ];
+    try {
+      // 1. Purge any stale cart session cookies
+      if (typeof document !== 'undefined') {
+        const cartCookies = ['zoodi_cart', 'cart', 'session_cart', 'guest_cart', 'zoodi_guest_cart'];
+        cartCookies.forEach((cookieName) => {
+          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; max-age=0;`;
+        });
+      }
+
+      // 2. Clear any stale session storage
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('zoodi_cart');
+        sessionStorage.removeItem('cart');
+        sessionStorage.removeItem('guest_cart');
+      }
+
+      // 3. Purge legacy hardcoded default cart items from localStorage
+      const legacyCleaned = localStorage.getItem('zoodi_cart_purged_v4');
+      if (!legacyCleaned) {
+        localStorage.setItem('zoodi_cart_purged_v4', 'true');
+        const existingRaw = localStorage.getItem('zoodi_cart');
+        if (existingRaw) {
+          const parsedExisting = JSON.parse(existingRaw);
+          if (Array.isArray(parsedExisting)) {
+            const purged = parsedExisting.filter(
+              (item: any) =>
+                item &&
+                item.id !== 'cart_init_1' &&
+                !String(item.id).startsWith('cart_init') &&
+                !(item.productId === 'prod_jacket_01' && item.quantity === 1 && item.price === 2499.0)
+            );
+            if (purged.length === 0) {
+              localStorage.removeItem('zoodi_cart');
+              return [];
+            } else {
+              localStorage.setItem('zoodi_cart', JSON.stringify(purged));
+              return purged;
+            }
+          }
+        }
+      }
+
+      // 4. Retrieve saved cart if any, guaranteeing hardcoded items are never returned
+      const saved = localStorage.getItem('zoodi_cart');
+      if (saved) {
+        const parsed = JSON.parse(saved);
+        if (Array.isArray(parsed)) {
+          const validItems = parsed.filter(
+            (item: any) =>
+              item &&
+              item.id !== 'cart_init_1' &&
+              !String(item.id).startsWith('cart_init') &&
+              !(item.productId === 'prod_jacket_01' && item.quantity === 1 && item.price === 2499.0)
+          );
+          if (validItems.length !== parsed.length) {
+            if (validItems.length === 0) {
+              localStorage.removeItem('zoodi_cart');
+            } else {
+              localStorage.setItem('zoodi_cart', JSON.stringify(validItems));
+            }
+          }
+          return validItems;
+        }
+      }
+    } catch {
+      // ignore
+    }
+    // Default initial cart state MUST ALWAYS be empty for guest and unauthenticated users
+    return [];
   });
 
   const [wishlistIds, setWishlistIds] = useState<string[]>(['prod_sneaker_02', 'prod_dress_03']);
@@ -594,6 +665,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
     });
 
+    const unsubTemplates = subscribeToCategoryTemplates((cloudTemplates) => {
+      if (cloudTemplates && cloudTemplates.length > 0) {
+        setCategoryTemplates(cloudTemplates);
+        try {
+          localStorage.setItem('zoodi_category_templates', JSON.stringify(cloudTemplates));
+        } catch {}
+      }
+    });
+
     return () => {
       unsubProducts();
       unsubMain();
@@ -602,8 +682,15 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       unsubSections();
       unsubCoupons();
       unsubOrders();
+      unsubTemplates();
     };
   }, []);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem('zoodi_category_templates', JSON.stringify(categoryTemplates));
+    } catch {}
+  }, [categoryTemplates]);
 
   useEffect(() => {
     localStorage.setItem('zoodi_coupons', JSON.stringify(coupons));
@@ -623,7 +710,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   }, [orders]);
 
   useEffect(() => {
-    localStorage.setItem('zoodi_cart', JSON.stringify(cart));
+    if (cart.length === 0) {
+      localStorage.removeItem('zoodi_cart');
+    } else {
+      localStorage.setItem('zoodi_cart', JSON.stringify(cart));
+    }
   }, [cart]);
 
   useEffect(() => {
@@ -1389,6 +1480,17 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setIsCustomerLoggedIn(false);
     try {
       localStorage.setItem('zoodi_customer_logged_in', 'false');
+      if (typeof document !== 'undefined') {
+        const cartCookies = ['zoodi_cart', 'cart', 'session_cart', 'guest_cart', 'zoodi_guest_cart'];
+        cartCookies.forEach((cookieName) => {
+          document.cookie = `${cookieName}=; expires=Thu, 01 Jan 1970 00:00:00 UTC; path=/; max-age=0;`;
+        });
+      }
+      if (typeof sessionStorage !== 'undefined') {
+        sessionStorage.removeItem('zoodi_cart');
+        sessionStorage.removeItem('cart');
+        sessionStorage.removeItem('guest_cart');
+      }
     } catch {
       // ignore storage errors
     }
@@ -1485,11 +1587,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       sizeStock: { S: 5, M: 10, L: 8, XL: 2 },
     };
 
-    const variants = (rawVariants.length > 0 ? rawVariants : [defaultVariant]).map((v) => ({
-      ...v,
-      price: product.price,
-      salePrice: product.salePrice && product.salePrice > 0 && product.salePrice < product.price ? product.salePrice : undefined,
-    }));
+    const variants = (rawVariants.length > 0 ? rawVariants : [defaultVariant]).map((v) => {
+      const vPrice = typeof v.price === 'number' && v.price > 0 ? v.price : product.price;
+      const vSalePrice =
+        typeof v.salePrice === 'number' && v.salePrice > 0 && v.salePrice < vPrice
+          ? v.salePrice
+          : product.salePrice && product.salePrice > 0 && product.salePrice < vPrice
+          ? product.salePrice
+          : undefined;
+      return {
+        ...v,
+        price: vPrice,
+        salePrice: vSalePrice,
+      };
+    });
 
     const sanitizedProduct: Product = {
       ...product,
@@ -1687,6 +1798,38 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     recordAudit('CATEGORY_DELETE', `Deleted ${type} category: ${id}`);
     firestoreDeleteCategory(type, id).catch(console.warn);
     return { success: true };
+  };
+
+  const saveCategoryTemplate = (template: CategorySpecificationTemplate) => {
+    const updated: CategorySpecificationTemplate = {
+      ...template,
+      updatedAt: new Date().toISOString(),
+    };
+    setCategoryTemplates((prev) => {
+      const idx = prev.findIndex((t) => t.id === template.id || t.categoryId === template.categoryId);
+      if (idx >= 0) {
+        const next = [...prev];
+        next[idx] = updated;
+        return next;
+      }
+      return [...prev, updated];
+    });
+    recordAudit('CATEGORY_TEMPLATE_SAVE', `Saved specification template for category: ${template.categoryName || template.categoryId}`);
+    firestoreSaveCategoryTemplate(updated).catch(console.warn);
+  };
+
+  const deleteCategoryTemplate = (templateId: string) => {
+    setCategoryTemplates((prev) => prev.filter((t) => t.id !== templateId));
+    recordAudit('CATEGORY_TEMPLATE_DELETE', `Deleted category specification template: ${templateId}`);
+    firestoreDeleteCategoryTemplate(templateId).catch(console.warn);
+  };
+
+  const resetCategoryTemplatesToDefault = () => {
+    setCategoryTemplates(DEFAULT_CATEGORY_TEMPLATES);
+    recordAudit('CATEGORY_TEMPLATE_RESET', 'Reset all category specification templates to system defaults');
+    DEFAULT_CATEGORY_TEMPLATES.forEach((tmpl) => {
+      firestoreSaveCategoryTemplate(tmpl).catch(console.warn);
+    });
   };
 
   const updateHomepageSections = async (sections: HomepageSection[]): Promise<boolean> => {
@@ -2112,6 +2255,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         adminLogout,
         auditLogs,
         adminUsers,
+        categoryTemplates,
+        saveCategoryTemplate,
+        deleteCategoryTemplate,
+        resetCategoryTemplatesToDefault,
         saveProduct,
         deleteProduct,
         saveCategory,

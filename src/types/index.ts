@@ -2,6 +2,66 @@ import { AdminRole, OrderStatus } from '../lib/commerceLogic';
 
 export type { AdminRole, OrderStatus };
 
+export type SpecificationInputType =
+  | 'text'
+  | 'textarea'
+  | 'number'
+  | 'boolean'
+  | 'select'
+  | 'multiselect'
+  | 'multi-select'
+  | 'dimensions'
+  | 'date'
+  | 'image';
+
+export interface ProductSpecificationField {
+  id?: string;
+  key: string;
+  fieldKey?: string;
+  label: string;
+  value?: string | number | boolean | string[];
+  unit?: string;
+  type?: SpecificationInputType;
+  inputType?: SpecificationInputType;
+  options?: string[];
+  required?: boolean;
+  visibleToCustomers?: boolean;
+  isVisibleOnStorefront?: boolean;
+  categoryScope?: 'all' | string;
+  description?: string;
+  placeholder?: string;
+  displayOrder?: number;
+  isCustom?: boolean;
+  section?: string;
+}
+
+export type StructuredSpecification = ProductSpecificationField;
+
+export type VariantOptionType =
+  | 'clothing_size'
+  | 'clothing_sizes'
+  | 'age_size'
+  | 'age_sizes'
+  | 'shoe_size'
+  | 'shoe_sizes'
+  | 'volume_ml'
+  | 'custom'
+  | 'custom_sizes'
+  | 'none';
+
+export interface CategorySpecificationTemplate {
+  id: string;
+  name?: string;
+  categoryId?: string; // mainCategoryId or subCategoryId or 'default'
+  categoryName?: string;
+  applicableCategoryIds?: string[];
+  defaultVariantType?: VariantOptionType;
+  defaultSizes?: string[];
+  fields: ProductSpecificationField[];
+  isDefault?: boolean;
+  updatedAt?: string;
+}
+
 export interface ProductVariant {
   id: string;
   colorName: string;
@@ -13,6 +73,7 @@ export interface ProductVariant {
   stock: number;
   sizeStock?: Record<string, number>;
   attributes?: Record<string, string>;
+  optionPricing?: Record<string, { price: number; salePrice?: number }>;
 }
 
 export interface Product {
@@ -22,7 +83,7 @@ export interface Product {
   description: string;
   mainCategoryId: string;
   subCategoryId: string;
-  subSubCategoryId: string;
+  subSubCategoryId?: string;
   price: number;
   salePrice?: number;
   rating: number;
@@ -32,7 +93,7 @@ export interface Product {
   bestSeller: boolean;
   trending: boolean;
   tags: string[];
-  specifications: Record<string, string>;
+  specifications?: Record<string, string>;
   variants: ProductVariant[];
   sizes: string[];
   status: 'published' | 'draft' | 'hidden' | 'archived';
@@ -40,14 +101,32 @@ export interface Product {
   returnEligible: boolean;
   createdAt: string;
 
-  // Detailed Product Specification Fields
+  // Variant Option Type
+  variantType?: VariantOptionType;
+
+  // Dynamic Structured Specification System
+  structuredSpecifications?: ProductSpecificationField[];
+
+  // Detailed Product Specification Fields (Backwards compatible & shortcuts)
+  styleName?: string;
+  styleNumber?: string;
   style?: string;
   fabric?: string;
   gsm?: string;
   ratio?: string;
   accessories?: string;
+  accessoriesIncluded?: string;
   packaging?: string;
+  packagingDetails?: string;
   customColors?: string;
+  colorsDescription?: string;
+  targetAudience?: string;
+  countryOfOrigin?: string;
+  manufacturer?: string;
+  careInstructions?: string;
+  sizeChartImage?: string;
+  careImage?: string;
+  additionalImages?: string[];
 }
 
 export type CategoryDisplayMode = 'image' | 'text' | 'initial';

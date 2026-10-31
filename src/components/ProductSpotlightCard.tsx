@@ -47,9 +47,25 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
 
   const handleAddToCart = (e: React.MouseEvent) => {
     e.stopPropagation();
+    const configuredColors = (product.variants || []).filter(
+      (v) =>
+        v.attributes?.isUnconfiguredDefault !== 'true' &&
+        v.colorName &&
+        v.colorName.trim() !== '' &&
+        v.colorName.trim().toLowerCase() !== 'default' &&
+        v.colorName.trim().toLowerCase() !== 'standard'
+    );
+    const needsOptionChoice =
+      (product.variantType !== 'none' && product.sizes && product.sizes.length > 0) ||
+      configuredColors.length > 0;
+
+    if (needsOptionChoice) {
+      handleOpenDetail();
+      return;
+    }
+
     if (activeVariant) {
-      const defaultSize = product.sizes?.[0] || 'M';
-      addToCart(product, activeVariant, defaultSize, 1);
+      addToCart(product, activeVariant, 'One Size', 1);
       setJustAdded(true);
       setTimeout(() => setJustAdded(false), 1500);
     }

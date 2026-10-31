@@ -24,6 +24,7 @@ import {
   OrderStatus,
   Review,
   SupportTicket,
+  CategorySpecificationTemplate,
 } from '../types';
 import {
   INITIAL_PRODUCTS,
@@ -34,6 +35,7 @@ import {
   INITIAL_COUPONS,
   INITIAL_ORDERS,
 } from '../data/seedData';
+import { DEFAULT_CATEGORY_TEMPLATES } from '../data/categoryTemplates';
 
 // Firestore collection names
 export const FIRESTORE_COLLECTIONS = {
@@ -47,6 +49,7 @@ export const FIRESTORE_COLLECTIONS = {
   ORDERS: 'orders',
   REVIEWS: 'reviews',
   SUPPORT_TICKETS: 'support_tickets',
+  CATEGORY_SPEC_TEMPLATES: 'category_spec_templates',
 };
 
 /**
@@ -106,7 +109,15 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
       await setDoc(doc(db, FIRESTORE_COLLECTIONS.ORDERS, ord.id), ord);
     }
 
-    // 8. Record initialization flag to prevent future re-seeding
+    // 8. Seed Default Category Specification Templates if empty
+    const tmplSnap = await getDocs(query(collection(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES), limit(1)));
+    if (tmplSnap.empty) {
+      for (const tmpl of DEFAULT_CATEGORY_TEMPLATES) {
+        await setDoc(doc(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES, tmpl.id), tmpl);
+      }
+    }
+
+    // 9. Record initialization flag to prevent future re-seeding
     await setDoc(metaRef, { seeded: true, timestamp: new Date().toISOString() });
 
     console.info('[FirestoreSync] Successfully seeded initial ZOODI catalog to Cloud Firestore.');
@@ -395,6 +406,47 @@ export async function firestoreDeleteCoupon(couponCode: string): Promise<void> {
     await deleteDoc(doc(db, FIRESTORE_COLLECTIONS.COUPONS, couponCode));
   } catch (error) {
     console.error('[FirestoreSync] Error deleting coupon from Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Listens in real time to category specification templates.
+ */
+export function subscribeToCategoryTemplates(callback: (templates: CategorySpecificationTemplate[]) => void): () => void {
+  const colRef = collection(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const templates = snapshot.docs.map((docSnap) => docSnap.data() as CategorySpecificationTemplate);
+      callback(templates);
+    },
+    (err) => {
+      console.warn('[FirestoreSync] category_spec_templates onSnapshot error:', err);
+    }
+  );
+}
+
+/**
+ * Saves a category specification template to Cloud Firestore.
+ */
+export async function firestoreSaveCategoryTemplate(template: CategorySpecificationTemplate): Promise<void> {
+  try {
+    await setDoc(doc(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES, template.id), template, { merge: true });
+  } catch (error) {
+    console.error('[FirestoreSync] Error saving category specification template to Firestore:', error);
+    throw error;
+  }
+}
+
+/**
+ * Deletes a category specification template from Cloud Firestore.
+ */
+export async function firestoreDeleteCategoryTemplate(templateId: string): Promise<void> {
+  try {
+    await deleteDoc(doc(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES, templateId));
+  } catch (error) {
+    console.error('[FirestoreSync] Error deleting category specification template from Firestore:', error);
     throw error;
   }
 }
