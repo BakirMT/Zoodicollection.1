@@ -143,9 +143,69 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
       ? rawSalePrice
       : undefined;
 
-  const primaryImages: string[] = Array.isArray(raw?.additionalImages)
-    ? raw.additionalImages.filter((img: any) => typeof img === 'string' && img.trim() !== '')
-    : [];
+  // 1. Gather all unique images into one common product image gallery
+  const collectedImageSet = new Set<string>();
+  if (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== '') {
+    collectedImageSet.add(raw.primaryImage.trim());
+  }
+  if (Array.isArray(raw?.images)) {
+    raw.images.forEach((img: any) => {
+      if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
+    });
+  }
+  if (Array.isArray(raw?.additionalImages)) {
+    raw.additionalImages.forEach((img: any) => {
+      if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
+    });
+  }
+  if (Array.isArray(raw?.variants)) {
+    raw.variants.forEach((v: any) => {
+      if (Array.isArray(v?.images)) {
+        v.images.forEach((img: any) => {
+          if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
+        });
+      }
+    });
+  }
+  const allCommonImages: string[] = Array.from(collectedImageSet);
+  const primaryImage =
+    (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== ''
+      ? raw.primaryImage.trim()
+      : allCommonImages[0]) || '';
+  if (primaryImage && !allCommonImages.includes(primaryImage)) {
+    allCommonImages.unshift(primaryImage);
+  }
+
+  // 2. Normalize decoupled product colors
+  const extractedColors: { id: string; name: string; hex: string }[] = [];
+  if (Array.isArray(raw?.colors) && raw.colors.length > 0) {
+    raw.colors.forEach((c: any, cIdx: number) => {
+      if (c && typeof c === 'object' && c.name && String(c.name).trim() !== '') {
+        extractedColors.push({
+          id: String(c.id || `col_${cIdx}`),
+          name: String(c.name).trim(),
+          hex: String(c.hex || c.code || '#192E4D'),
+        });
+      }
+    });
+  } else if (Array.isArray(raw?.variants)) {
+    raw.variants.forEach((v: any, vIdx: number) => {
+      const cName = typeof v?.colorName === 'string' ? v.colorName.trim() : '';
+      if (
+        cName &&
+        v?.attributes?.isUnconfiguredDefault !== 'true' &&
+        cName.toLowerCase() !== 'standard' &&
+        cName.toLowerCase() !== 'default' &&
+        !extractedColors.some((ec) => ec.name.toLowerCase() === cName.toLowerCase())
+      ) {
+        extractedColors.push({
+          id: String(v?.id || `col_${vIdx}`),
+          name: cName,
+          hex: typeof v?.colorCode === 'string' && v.colorCode ? v.colorCode : '#192E4D',
+        });
+      }
+    });
+  }
 
   const sizes: string[] = Array.isArray(raw?.sizes)
     ? raw.sizes.map((s: any) => String(s || '').trim()).filter(Boolean)
@@ -164,9 +224,9 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
     : [
         {
           id: `${id}_var_0`,
-          colorName: '',
-          colorCode: '#192E4D',
-          images: primaryImages,
+          colorName: extractedColors[0]?.name || '',
+          colorCode: extractedColors[0]?.hex || '#192E4D',
+          images: allCommonImages,
           sku: `ZD-${id.slice(-4).toUpperCase()}`,
           price,
           salePrice,
@@ -295,7 +355,7 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
       id: vId,
       colorName: vColorName,
       colorCode: vColorCode,
-      images: vImages,
+      images: allCommonImages.length > 0 ? allCommonImages : vImages,
       sku: vBaseSku,
       price: vPrice,
       salePrice: vSalePrice,
@@ -334,6 +394,10 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
     shippingEligible: raw?.shippingEligible !== false,
     returnEligible: raw?.returnEligible !== false,
     createdAt: raw?.createdAt || new Date().toISOString(),
+    primaryImage,
+    images: allCommonImages,
+    additionalImages: allCommonImages.slice(1),
+    colors: extractedColors,
     variants,
     variantCombinations: allCombinations,
     totalStock: totalDerivedStock,
@@ -460,10 +524,8 @@ export async function seedFirestoreIfEmpty(): Promise<void> {
       await setDoc(doc(db, FIRESTORE_COLLECTIONS.COUPONS, cpn.code), sanitizeForFirestore(cpn));
     }
 
-    // 7. Seed Initial Demo Orders
-    for (const ord of INITIAL_ORDERS) {
-      await setDoc(doc(db, FIRESTORE_COLLECTIONS.ORDERS, ord.id), sanitizeForFirestore(ord));
-    }
+    // 7. Initial Demo Orders (DISABLED: Kept clean & empty so Sales Revenue and AOV start at ₹0)
+    // Real customer orders will populate dynamically.
 
     // 8. Seed Default Category Specification Templates if empty
     const tmplSnap = await getDocs(query(collection(db, FIRESTORE_COLLECTIONS.CATEGORY_SPEC_TEMPLATES), limit(1)));
@@ -602,15 +664,36 @@ export function subscribeToCoupons(callback: (coupons: Coupon[]) => void): () =>
   );
 }
 
+export const LEGACY_DEMO_ORDER_IDS = new Set(['ZD-84920', 'ZD-73210', 'ZD-61902']);
+
 /**
- * Listens in real time to orders
+ * Listens in real time to orders.
+ * Automatically filters out legacy hardcoded demo orders to ensure clean zero revenue / AOV.
  */
 export function subscribeToOrders(callback: (orders: Order[]) => void): () => void {
   const colRef = collection(db, FIRESTORE_COLLECTIONS.ORDERS);
   return onSnapshot(
     colRef,
     (snapshot) => {
-      const list = snapshot.docs.map((d) => d.data() as Order);
+      const list: Order[] = [];
+      const toDeleteDocRefs: any[] = [];
+
+      snapshot.docs.forEach((d) => {
+        const orderData = d.data() as Order;
+        const ordId = orderData?.id || d.id;
+        if (LEGACY_DEMO_ORDER_IDS.has(ordId)) {
+          // Asynchronously purge obsolete demo order from Firestore
+          toDeleteDocRefs.push(d.ref);
+        } else {
+          list.push(orderData);
+        }
+      });
+
+      // Cleanup demo docs silently
+      if (toDeleteDocRefs.length > 0) {
+        toDeleteDocRefs.forEach((ref) => deleteDoc(ref).catch(() => {}));
+      }
+
       list.sort((a, b) => new Date(b.createdAt).getTime() - new Date(a.createdAt).getTime());
       callback(list);
     },
@@ -618,6 +701,33 @@ export function subscribeToOrders(callback: (orders: Order[]) => void): () => vo
       console.warn('[FirestoreSync] orders onSnapshot error:', err);
     }
   );
+}
+
+/**
+ * Purges obsolete demo orders from Cloud Firestore to maintain zero revenue.
+ */
+export async function firestoreClearDemoOrders(): Promise<void> {
+  try {
+    for (const id of Array.from(LEGACY_DEMO_ORDER_IDS)) {
+      await deleteDoc(doc(db, FIRESTORE_COLLECTIONS.ORDERS, id)).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[FirestoreSync] Error clearing demo orders:', err);
+  }
+}
+
+/**
+ * Resets all orders in Cloud Firestore, resetting Sales Revenue and AOV back to 0.
+ */
+export async function firestoreResetAllOrders(): Promise<void> {
+  try {
+    const snap = await getDocs(collection(db, FIRESTORE_COLLECTIONS.ORDERS));
+    for (const d of snap.docs) {
+      await deleteDoc(d.ref).catch(() => {});
+    }
+  } catch (err) {
+    console.warn('[FirestoreSync] Error resetting all orders in Firestore:', err);
+  }
 }
 
 // ================= FIRESTORE MUTATION WRITERS =================

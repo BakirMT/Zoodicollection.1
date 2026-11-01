@@ -94,6 +94,13 @@ export interface ProductVariant {
   optionPricing?: Record<string, { price: number; salePrice?: number }>;
 }
 
+export interface ProductColor {
+  id: string;
+  name: string;
+  hex: string;
+  code?: string;
+}
+
 export interface Product {
   id: string;
   name: string;
@@ -120,6 +127,11 @@ export interface Product {
   shippingEligible: boolean;
   returnEligible: boolean;
   createdAt: string;
+
+  // Decoupled Common Gallery Images & Independent Colors
+  primaryImage?: string;
+  images?: string[];
+  colors?: ProductColor[];
 
   // Variant Option Type
   variantType?: VariantOptionType;

@@ -22,7 +22,10 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
   const [justAdded, setJustAdded] = useState(false);
 
   const activeVariant = product.variants?.[selectedVariantIndex] || product.variants?.[0];
+
   const activeImage =
+    product.primaryImage ||
+    product.images?.[0] ||
     activeVariant?.images?.[0] ||
     product.additionalImages?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';

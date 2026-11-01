@@ -2,6 +2,7 @@ import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import {
   Product,
+  ProductColor,
   ProductVariant,
   StructuredSpecification,
   VariantOptionType,
@@ -22,7 +23,59 @@ import {
   Sliders,
   Package,
   RotateCcw,
+  Star,
+  ChevronLeft,
+  ChevronRight,
+  Palette,
+  Upload,
+  Image as ImageIcon,
 } from 'lucide-react';
+
+const PRESET_COLORS = [
+  { name: 'Jet Black', hex: '#000000' },
+  { name: 'Pure White', hex: '#FFFFFF' },
+  { name: 'Navy Blue', hex: '#192E4D' },
+  { name: 'Royal Blue', hex: '#2563EB' },
+  { name: 'Sky Blue', hex: '#38BDF8' },
+  { name: 'Crimson Red', hex: '#DC2626' },
+  { name: 'Maroon', hex: '#831843' },
+  { name: 'Forest Green', hex: '#16A34A' },
+  { name: 'Olive Green', hex: '#65A30D' },
+  { name: 'Golden Yellow', hex: '#EAB308' },
+  { name: 'Warm Orange', hex: '#EA580C' },
+  { name: 'Lavender Purple', hex: '#9333EA' },
+  { name: 'Blush Pink', hex: '#EC4899' },
+  { name: 'Teal Green', hex: '#0D9488' },
+  { name: 'Sand Beige', hex: '#D4B996' },
+  { name: 'Charcoal Grey', hex: '#4B5563' },
+];
+
+const SAMPLE_IMAGE_SETS = [
+  {
+    label: "Men's Apparel",
+    images: [
+      'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1618354691373-d851c5c3a990?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+  {
+    label: 'Jackets & Outerwear',
+    images: [
+      'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1548883354-7622d03aca27?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+  {
+    label: 'Footwear & Sneakers',
+    images: [
+      'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?auto=format&fit=crop&w=800&q=80',
+    ],
+  },
+];
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -46,7 +99,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     orders,
   } = useApp();
 
-  // Active section tab (1 to 10)
+  // Active section tab (1 to 11)
   const [activeSection, setActiveSection] = useState<number>(1);
   // Inline validation message (no browser alerts)
   const [validationError, setValidationError] = useState<string | null>(null);
@@ -68,19 +121,28 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [showQuickCategoryModal, setShowQuickCategoryModal] = useState(false);
   const [quickCategoryLevel, setQuickCategoryLevel] = useState<CategoryLevel>('sub');
 
-  // SECTION 3: PRODUCT IMAGES
+  // SECTION 3: COMMON PRODUCT IMAGES (Belongs to entire product common gallery, NOT to individual colors)
   const [pPrimaryImage, setPPrimaryImage] = useState('');
-  const [pAdditionalImages, setPAdditionalImages] = useState<string[]>([]);
-  const [additionalImageInput, setAdditionalImageInput] = useState('');
+  const [pGalleryImages, setPGalleryImages] = useState<string[]>([]);
+  const [galleryImageInput, setGalleryImageInput] = useState('');
+  const [bulkImageInput, setBulkImageInput] = useState('');
+  const [showBulkInput, setShowBulkInput] = useState(false);
   const [pSizeChartImage, setPSizeChartImage] = useState('');
   const [pCareImage, setPCareImage] = useState('');
 
-  // SECTION 4: PRODUCT VARIANTS & SIZES (Never preselected automatically!)
+  // SECTION 4: PRODUCT COLORS (Independent section, NOT linked to images)
+  const [pColors, setPColors] = useState<ProductColor[]>([]);
+  const [showColorModal, setShowColorModal] = useState(false);
+  const [editingColorIndex, setEditingColorIndex] = useState<number | null>(null);
+  const [cNameInput, setCNameInput] = useState('');
+  const [cHexInput, setCHexInput] = useState('#192E4D');
+  const [colorModalError, setColorModalError] = useState<string | null>(null);
+
+  // SECTION 5: SIZES & COMBINATION INVENTORY
   const [variantType, setVariantType] = useState<VariantOptionType>('clothing_sizes');
   const [pAvailableSizes, setPAvailableSizes] = useState<string[]>([]);
   const [customCandidateSizes, setCustomCandidateSizes] = useState<string[]>([]);
   const [customSizeInput, setCustomSizeInput] = useState('');
-  const [pVariants, setPVariants] = useState<ProductVariant[]>([]);
 
   // Colour + Size combination inventory state keyed by `${colorId}__${sizeKey}`
   const [combinationInventory, setCombinationInventory] = useState<
@@ -91,18 +153,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     message: string;
     onConfirm: () => void;
   } | null>(null);
-
-  // Color variant sub-modal (Colour Name, Swatch, Optional Price/SKU, and Colour Images — Stock is managed in the Colour + Size table)
-  const [showColorModal, setShowColorModal] = useState(false);
-  const [editingVariantIndex, setEditingVariantIndex] = useState<number | null>(null);
-  const [vColorName, setVColorName] = useState('');
-  const [vColorCode, setVColorCode] = useState('#192E4D');
-  const [vSku, setVSku] = useState('');
-  const [vPrice, setVPrice] = useState<string>('');
-  const [vSalePrice, setVSalePrice] = useState<string>('');
-  const [vImages, setVImages] = useState<string[]>([]);
-  const [vImageUrlInput, setVImageUrlInput] = useState('');
-  const [colorModalError, setColorModalError] = useState<string | null>(null);
 
   // SECTION 5: CATEGORY SPECIFICATIONS (Values mapped by field key — always blank by default)
   const [specValues, setSpecValues] = useState<Record<string, any>>({});
@@ -161,33 +211,32 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setPSubCat('');
     setPSubSubCat('');
 
-    // Section 3: Blank images and previews
+    // Section 3: Blank common image gallery
     setPPrimaryImage('');
-    setPAdditionalImages([]);
-    setAdditionalImageInput('');
+    setPGalleryImages([]);
+    setGalleryImageInput('');
+    setBulkImageInput('');
+    setShowBulkInput(false);
     setPSizeChartImage('');
     setPCareImage('');
 
-    // Section 4: No automatic size or variant selection!
+    // Section 4: Blank decoupled product colors
+    setPColors([]);
+    setShowColorModal(false);
+    setEditingColorIndex(null);
+    setCNameInput('');
+    setCHexInput('#192E4D');
+    setColorModalError(null);
+
+    // Section 5: No automatic size or variant selection!
     setVariantType('clothing_sizes');
     setPAvailableSizes([]);
     setCustomCandidateSizes([]);
     setCustomSizeInput('');
-    setPVariants([]);
     setCombinationInventory({});
     setBulkStockFillInput('');
-    setShowColorModal(false);
-    setEditingVariantIndex(null);
-    setVColorName('');
-    setVColorCode('#192E4D');
-    setVSku('');
-    setVPrice('');
-    setVSalePrice('');
-    setVImages([]);
-    setVImageUrlInput('');
-    setColorModalError(null);
 
-    // Section 5: All optional specifications start completely empty
+    // Section 6: All optional specifications start completely empty
     setSpecValues({});
     setPStyle('');
     setPStyleName('');
@@ -202,17 +251,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setPManufacturer('');
     setPCareInstructions('');
 
-    // Section 6: Custom specs empty
+    // Section 7: Custom specs empty
     setCustomSpecs([]);
     setNewCustomLabel('');
     setNewCustomValue('');
     setNewCustomUnit('');
 
-    // Section 7: Pricing blank
+    // Section 8: Pricing blank
     setPPrice('');
     setPSalePrice('');
 
-    // Section 8 & 9: Clean defaults
+    // Section 9 & 10: Clean defaults
     setPShippingEligible(true);
     setPReturnEligible(true);
     setPFeatured(false);
@@ -245,25 +294,80 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         editingProduct.salePrice !== undefined ? String(editingProduct.salePrice) : ''
       );
 
-      // Filter out internal unconfigured carrier variants so only real configured variants show in the variant list
-      const configuredVariants = (editingProduct.variants || []).filter(
-        (v) =>
-          v.attributes?.isUnconfiguredDefault !== 'true' &&
-          v.colorName &&
-          v.colorName.trim() !== '' &&
-          v.colorName.trim() !== 'Standard'
-      );
-      setPVariants(configuredVariants.map((v) => ({ ...v })));
-
       const firstVar = editingProduct.variants?.[0];
       setPSku(firstVar?.sku || '');
-      setPPrimaryImage(firstVar?.images?.[0] || '');
-      setPAdditionalImages(
-        editingProduct.additionalImages || (firstVar?.images ? firstVar.images.slice(1) : [])
-      );
+
+      // 1. Gather all existing images into common product image gallery
+      const loadedImageSet = new Set<string>();
+      if (editingProduct.primaryImage && editingProduct.primaryImage.trim()) {
+        loadedImageSet.add(editingProduct.primaryImage.trim());
+      }
+      (editingProduct.images || []).forEach((u) => {
+        if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
+      });
+      (editingProduct.additionalImages || []).forEach((u) => {
+        if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
+      });
+      (editingProduct.variants || []).forEach((v) => {
+        (v.images || []).forEach((u) => {
+          if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
+        });
+      });
+      const allLoadedImages = Array.from(loadedImageSet);
+      const activePrimary =
+        (editingProduct.primaryImage && editingProduct.primaryImage.trim()) ||
+        allLoadedImages[0] ||
+        '';
+      if (activePrimary && !allLoadedImages.includes(activePrimary)) {
+        allLoadedImages.unshift(activePrimary);
+      }
+      setPPrimaryImage(activePrimary);
+      setPGalleryImages(allLoadedImages);
+      setGalleryImageInput('');
+      setBulkImageInput('');
+      setShowBulkInput(false);
       setPSizeChartImage(editingProduct.sizeChartImage || '');
       setPCareImage(editingProduct.careImage || '');
 
+      // 2. Load decoupled product colors
+      const loadedColors: ProductColor[] = [];
+      if (Array.isArray(editingProduct.colors) && editingProduct.colors.length > 0) {
+        editingProduct.colors.forEach((c, idx) => {
+          if (c && c.name && c.name.trim()) {
+            loadedColors.push({
+              id: c.id || `col_${idx}`,
+              name: c.name.trim(),
+              hex: c.hex || (c as any).code || '#192E4D',
+            });
+          }
+        });
+      } else {
+        const configuredVariants = (editingProduct.variants || []).filter(
+          (v) =>
+            v.attributes?.isUnconfiguredDefault !== 'true' &&
+            v.colorName &&
+            v.colorName.trim() !== '' &&
+            v.colorName.trim().toLowerCase() !== 'standard' &&
+            v.colorName.trim().toLowerCase() !== 'default'
+        );
+        configuredVariants.forEach((v, idx) => {
+          if (!loadedColors.some((lc) => lc.name.toLowerCase() === v.colorName.trim().toLowerCase())) {
+            loadedColors.push({
+              id: v.id || `col_${idx}`,
+              name: v.colorName.trim(),
+              hex: v.colorCode || '#192E4D',
+            });
+          }
+        });
+      }
+      setPColors(loadedColors);
+      setShowColorModal(false);
+      setEditingColorIndex(null);
+      setCNameInput('');
+      setCHexInput('#192E4D');
+      setColorModalError(null);
+
+      // 3. Sizes & Combination Inventory
       const loadedVariantType = editingProduct.variantType || 'clothing_sizes';
       const loadedSizes = editingProduct.sizes ? [...editingProduct.sizes] : [];
       setVariantType(loadedVariantType);
@@ -279,28 +383,55 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       const effectiveSizeKeys =
         loadedVariantType === 'none' || loadedSizes.length === 0 ? ['Single Unit'] : loadedSizes;
 
-      if (configuredVariants.length > 0) {
-        configuredVariants.forEach((v) => {
-          const disabledSet = new Set(v.disabledSizes || []);
+      const configuredVariants = (editingProduct.variants || []).filter(
+        (v) =>
+          v.attributes?.isUnconfiguredDefault !== 'true' &&
+          v.colorName &&
+          v.colorName.trim() !== '' &&
+          v.colorName.trim().toLowerCase() !== 'standard' &&
+          v.colorName.trim().toLowerCase() !== 'default'
+      );
+
+      if (loadedColors.length > 0) {
+        loadedColors.forEach((c) => {
+          const matchedVariant = configuredVariants.find(
+            (v) => v.id === c.id || v.colorName.toLowerCase() === c.name.toLowerCase()
+          );
+          const disabledSet = new Set(matchedVariant?.disabledSizes || []);
           effectiveSizeKeys.forEach((sz) => {
-            const comboKey = `${v.id}__${sz}`;
-            const rawQty =
-              v.sizeStock && v.sizeStock[sz] !== undefined
-                ? v.sizeStock[sz]
-                : effectiveSizeKeys.length === 1
-                ? v.stock ?? 0
-                : 0;
+            const comboKey = `${c.id}__${sz}`;
+            // Check saved variantCombinations first
+            const savedComb = (editingProduct.variantCombinations || []).find(
+              (vc) => (vc.colorId === c.id || vc.colorName.toLowerCase() === c.name.toLowerCase()) && vc.size === sz
+            );
+
+            let rawQty = 0;
+            if (savedComb && typeof savedComb.stockQuantity === 'number') {
+              rawQty = savedComb.stockQuantity;
+            } else if (matchedVariant?.sizeStock && matchedVariant.sizeStock[sz] !== undefined) {
+              rawQty = matchedVariant.sizeStock[sz];
+            } else if (effectiveSizeKeys.length === 1 && matchedVariant?.stock !== undefined) {
+              rawQty = matchedVariant.stock;
+            }
+
             const existingSku =
-              v.sizeSku?.[sz] ||
+              savedComb?.sku ||
+              matchedVariant?.sizeSku?.[sz] ||
               formatCombinationSku(
-                v.sku || firstVar?.sku || editingProduct.id,
-                v.colorName,
+                matchedVariant?.sku || firstVar?.sku || editingProduct.id,
+                c.name,
                 sz
               );
+
+            const isComboActive =
+              savedComb !== undefined
+                ? savedComb.isActive !== false
+                : !disabledSet.has(sz) && matchedVariant?.isActive !== false;
+
             initialComboMap[comboKey] = {
               sku: existingSku,
               stockQuantity: String(Math.max(0, Math.floor(Number(rawQty) || 0))),
-              isActive: !disabledSet.has(sz) && v.isActive !== false,
+              isActive: isComboActive,
             };
           });
         });
@@ -310,23 +441,30 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           editingProduct.customColors || firstVar.colorName || 'Standard';
         effectiveSizeKeys.forEach((sz) => {
           const comboKey = `default_color__${sz}`;
-          const rawQty =
-            firstVar.sizeStock && firstVar.sizeStock[sz] !== undefined
-              ? firstVar.sizeStock[sz]
-              : effectiveSizeKeys.length === 1
-              ? firstVar.stock ?? 0
-              : 0;
+          const savedComb = (editingProduct.variantCombinations || []).find((vc) => vc.size === sz);
+          let rawQty = 0;
+          if (savedComb && typeof savedComb.stockQuantity === 'number') {
+            rawQty = savedComb.stockQuantity;
+          } else if (firstVar.sizeStock && firstVar.sizeStock[sz] !== undefined) {
+            rawQty = firstVar.sizeStock[sz];
+          } else if (effectiveSizeKeys.length === 1 && firstVar.stock !== undefined) {
+            rawQty = firstVar.stock;
+          }
+
           const existingSku =
+            savedComb?.sku ||
             firstVar.sizeSku?.[sz] ||
-            formatCombinationSku(
-              firstVar.sku || editingProduct.id,
-              defaultColorLabel,
-              sz
-            );
+            formatCombinationSku(firstVar.sku || editingProduct.id, defaultColorLabel, sz);
+
+          const isComboActive =
+            savedComb !== undefined
+              ? savedComb.isActive !== false
+              : !disabledSet.has(sz) && firstVar.isActive !== false;
+
           initialComboMap[comboKey] = {
             sku: existingSku,
             stockQuantity: String(Math.max(0, Math.floor(Number(rawQty) || 0))),
-            isActive: !disabledSet.has(sz) && firstVar.isActive !== false,
+            isActive: isComboActive,
           };
         });
       }
@@ -396,12 +534,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   // Active Colour & Size axes for dynamic Colour + Size combination generation
   const effectiveColorEntries =
-    pVariants.length > 0
-      ? pVariants.map((v) => ({
-          id: v.id,
-          colorName: v.colorName,
-          colorCode: v.colorCode,
-          baseSku: v.sku || pSku.trim() || editingProduct?.id || 'ZD-001',
+    pColors.length > 0
+      ? pColors.map((c) => ({
+          id: c.id,
+          colorName: c.name,
+          colorCode: c.hex,
+          baseSku: pSku.trim() || editingProduct?.id || 'ZD-001',
         }))
       : [
           {
@@ -499,173 +637,211 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     );
   };
 
-  const hasOrderHistoryForVariant = (variantId: string): boolean => {
+  const hasOrderHistoryForColor = (colorId: string): boolean => {
     if (!editingProduct) return false;
+    const colorObj = pColors.find((c) => c.id === colorId);
     return orders.some((o) =>
-      o.items.some((item) => item.productId === editingProduct.id && item.variantId === variantId)
+      o.items.some(
+        (item) =>
+          item.productId === editingProduct.id &&
+          (item.variantId === colorId ||
+            (colorObj && item.colorName?.toLowerCase() === colorObj.name.toLowerCase()))
+      )
     );
   };
 
-  const toggleSizeSelection = (size: string) => {
+  const applyMainCategoryChange = (newCatId: string) => {
+    setPMainCat(newCatId);
+    setPSubCat('');
+    setPSubSubCat('');
+    setCategoryChangeWarning(null);
+    setPendingMainCat(null);
     setValidationError(null);
-    setPendingRemovalWarning(null);
-    if (pAvailableSizes.includes(size)) {
-      // Check if this size currently has inventory > 0 or order history
+  };
+
+  const handleMainCategoryChange = (newCatId: string) => {
+    if (newCatId === pMainCat) return;
+    const hasEnteredData =
+      Object.keys(specValues).length > 0 ||
+      pStyle.trim() !== '' ||
+      pFabric.trim() !== '' ||
+      pGsm.trim() !== '' ||
+      customSpecs.length > 0;
+
+    if (pMainCat && hasEnteredData) {
+      setPendingMainCat(newCatId);
+      setCategoryChangeWarning(
+        'Switching categories may reset or change available specification templates. Do you want to proceed?'
+      );
+      return;
+    }
+    applyMainCategoryChange(newCatId);
+  };
+
+  const handleSubCategoryChange = (newSubId: string) => {
+    setPSubCat(newSubId);
+    setPSubSubCat('');
+    setValidationError(null);
+  };
+
+  const handleChildCategoryChange = (newChildId: string) => {
+    setPSubSubCat(newChildId);
+    setValidationError(null);
+  };
+
+  const toggleSizeSelection = (sz: string) => {
+    const isSelected = pAvailableSizes.includes(sz);
+    if (isSelected) {
       const sizeStockTotal = effectiveColorEntries.reduce((sum, c) => {
-        const entry = combinationInventory[`${c.id}__${size}`];
+        const entry = combinationInventory[`${c.id}__${sz}`];
         const qty = entry ? Math.max(0, Math.floor(Number(entry.stockQuantity) || 0)) : 0;
         return sum + qty;
       }, 0);
-      const hasOrders = hasOrderHistoryForSize(size);
+      const hasOrders = hasOrderHistoryForSize(sz);
 
       if (sizeStockTotal > 0 || hasOrders) {
         setPendingRemovalWarning({
-          message: `Size "${size}" currently has ${sizeStockTotal} unit(s) in stock${
-            hasOrders ? ' and existing customer order history' : ''
-          }. Removing this size will remove its Colour + Size inventory rows from this product.`,
+          message: `Size "${sz}" currently has ${sizeStockTotal} unit(s) in stock${
+            hasOrders ? ' and customer order history' : ''
+          }. Removing this size will remove its inventory combination rows.`,
           onConfirm: () => {
-            setPAvailableSizes((prev) => prev.filter((s) => s !== size));
+            setPAvailableSizes((prev) => prev.filter((s) => s !== sz));
             setPendingRemovalWarning(null);
           },
         });
         return;
       }
-      setPAvailableSizes(pAvailableSizes.filter((s) => s !== size));
+      setPAvailableSizes((prev) => prev.filter((s) => s !== sz));
     } else {
-      setPAvailableSizes([...pAvailableSizes, size]);
+      setPAvailableSizes((prev) => [...prev, sz]);
     }
-  };
-
-  // Category switch with safety check
-  const handleMainCategoryChange = (newMainId: string) => {
     setValidationError(null);
-    const hasEnteredData =
-      Object.values(specValues).some((v) => v !== undefined && String(v).trim() !== '') ||
-      pStyle.trim() !== '' ||
-      pFabric.trim() !== '' ||
-      customSpecs.length > 0;
-
-    if (hasEnteredData && pMainCat && newMainId !== pMainCat) {
-      setPendingMainCat(newMainId);
-      setCategoryChangeWarning(
-        'Changing category will load the specification template for the new category. Any values you have already entered will be preserved.'
-      );
-    } else {
-      applyMainCategoryChange(newMainId);
-    }
   };
 
-  const applyMainCategoryChange = (newMainId: string) => {
-    setPMainCat(newMainId);
-    setPSubCat('');
-    setPSubSubCat('');
-
-    if (newMainId) {
-      const tpl = getCategoryTemplate(newMainId, '', categoryTemplates, '');
-      setVariantType(tpl.defaultVariantType || 'clothing_sizes');
+  // ==========================================
+  // SECTION 3: COMMON IMAGE GALLERY HELPERS
+  // ==========================================
+  const handleAddGalleryImage = (urlToAdd?: string) => {
+    const url = (urlToAdd || galleryImageInput).trim();
+    if (!url) return;
+    if (!pGalleryImages.includes(url)) {
+      const updated = [...pGalleryImages, url];
+      setPGalleryImages(updated);
+      if (!pPrimaryImage.trim()) {
+        setPPrimaryImage(url);
+      }
     }
-    // Never auto-select sizes when changing category!
-    setCategoryChangeWarning(null);
-    setPendingMainCat(null);
-  };
-
-  const handleSubCategoryChange = (newSubId: string) => {
+    setGalleryImageInput('');
     setValidationError(null);
-    setPSubCat(newSubId);
-    setPSubSubCat('');
-
-    if (pMainCat || newSubId) {
-      const tpl = getCategoryTemplate(pMainCat, newSubId, categoryTemplates, '');
-      setVariantType(tpl.defaultVariantType || 'clothing_sizes');
-    }
-    // Never auto-select sizes when changing subcategory!
   };
 
-  const handleChildCategoryChange = (newChildId: string) => {
+  const handleBulkAddImages = () => {
+    if (!bulkImageInput.trim()) return;
+    const urls = bulkImageInput
+      .split(/[\n,]+/)
+      .map((u) => u.trim())
+      .filter((u) => u.length > 5);
+
+    if (urls.length === 0) return;
+
+    const currentSet = new Set(pGalleryImages);
+    urls.forEach((u) => currentSet.add(u));
+    const updated = Array.from(currentSet);
+    setPGalleryImages(updated);
+    if (!pPrimaryImage.trim() && updated.length > 0) {
+      setPPrimaryImage(updated[0]);
+    }
+    setBulkImageInput('');
+    setShowBulkInput(false);
     setValidationError(null);
-    setPSubSubCat(newChildId);
-    if (newChildId) {
-      const tpl = getCategoryTemplate(pMainCat, pSubCat, categoryTemplates, newChildId);
-      if (tpl.defaultVariantType) {
-        setVariantType(tpl.defaultVariantType);
+  };
+
+  const handleSetPrimaryImage = (img: string) => {
+    setPPrimaryImage(img);
+    // Bring primary image to the front of gallery
+    const reordered = [img, ...pGalleryImages.filter((u) => u !== img)];
+    setPGalleryImages(reordered);
+  };
+
+  const handleMoveImage = (idx: number, direction: 'left' | 'right') => {
+    const targetIdx = direction === 'left' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= pGalleryImages.length) return;
+    const nextList = [...pGalleryImages];
+    const temp = nextList[idx];
+    nextList[idx] = nextList[targetIdx];
+    nextList[targetIdx] = temp;
+    setPGalleryImages(nextList);
+    if (idx === 0 || targetIdx === 0) {
+      if (!pPrimaryImage || pPrimaryImage === temp || pPrimaryImage === nextList[0]) {
+        setPPrimaryImage(nextList[0]);
       }
     }
   };
 
-  // Color variant helpers (Stock is managed in the Colour + Size table, not duplicated here)
+  const handleRemoveGalleryImage = (idx: number) => {
+    const targetImg = pGalleryImages[idx];
+    const remaining = pGalleryImages.filter((_, i) => i !== idx);
+    setPGalleryImages(remaining);
+    if (pPrimaryImage === targetImg) {
+      setPPrimaryImage(remaining[0] || '');
+    }
+  };
+
+  // ==========================================
+  // SECTION 4: PRODUCT COLORS (DECOUPLED)
+  // ==========================================
   const openAddColorModal = () => {
-    setEditingVariantIndex(null);
-    setVColorName('');
-    setVColorCode('#192E4D');
-    setVSku('');
-    setVPrice(pPrice || '');
-    setVSalePrice(pSalePrice || '');
-    setVImages([]);
-    setVImageUrlInput('');
+    setEditingColorIndex(null);
+    setCNameInput('');
+    setCHexInput('#192E4D');
     setColorModalError(null);
     setShowColorModal(true);
   };
 
   const openEditColorModal = (idx: number) => {
-    const v = pVariants[idx];
-    if (!v) return;
-    setEditingVariantIndex(idx);
-    setVColorName(v.colorName);
-    setVColorCode(v.colorCode);
-    setVSku(v.sku || '');
-    setVPrice(v.price !== undefined ? String(v.price) : '');
-    setVSalePrice(v.salePrice !== undefined ? String(v.salePrice) : '');
-    setVImages([...(v.images || [])]);
-    setVImageUrlInput('');
+    const c = pColors[idx];
+    if (!c) return;
+    setEditingColorIndex(idx);
+    setCNameInput(c.name);
+    setCHexInput(c.hex);
     setColorModalError(null);
     setShowColorModal(true);
   };
 
-  const handleSaveColorVariant = () => {
-    const trimmedName = vColorName.trim();
-    if (!trimmedName) {
-      setColorModalError('Please enter a colour / variant name.');
+  const handleSaveColor = () => {
+    const trimmed = cNameInput.trim();
+    if (!trimmed) {
+      setColorModalError('Please enter a colour name (e.g. Jet Black, Pearl White, Navy Blue).');
       return;
     }
 
-    // Prevent duplicate colour names
-    const duplicateExists = pVariants.some(
-      (v, idx) =>
-        idx !== editingVariantIndex &&
-        v.colorName.trim().toLowerCase() === trimmedName.toLowerCase()
+    const duplicateExists = pColors.some(
+      (c, idx) =>
+        idx !== editingColorIndex &&
+        c.name.trim().toLowerCase() === trimmed.toLowerCase()
     );
     if (duplicateExists) {
-      setColorModalError(`A colour variant named "${trimmedName}" already exists for this product.`);
+      setColorModalError(`A colour named "${trimmed}" already exists for this product.`);
       return;
     }
 
-    const parsedPrice = parseFloat(vPrice) || parseFloat(pPrice) || 0;
-    const parsedSalePrice = parseFloat(vSalePrice) || parseFloat(pSalePrice) || undefined;
-    const variantId =
-      editingVariantIndex !== null
-        ? pVariants[editingVariantIndex].id
-        : `var_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
-    const baseVariantSku =
-      vSku.trim() || pSku.trim() || `ZD-${Date.now().toString().slice(-4)}`;
+    const colorId =
+      editingColorIndex !== null
+        ? pColors[editingColorIndex].id
+        : `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
-    // Calculate current derived stock for this colour from combinationInventory
     const currentSizes = variantType === 'none' ? ['Single Unit'] : pAvailableSizes;
-    const derivedColorStock = currentSizes.reduce((acc, sz) => {
-      const entry = combinationInventory[`${variantId}__${sz}`];
-      if (!entry || !entry.isActive) return acc;
-      return acc + Math.max(0, Math.floor(Number(entry.stockQuantity) || 0));
-    }, 0);
 
-    // If this is the very first colour variant added and user had entered stock under default_color, migrate those rows to this colour
-    if (editingVariantIndex === null && pVariants.length === 0) {
+    // If first colour is added and user had entered quantities under default_color, migrate to this colour
+    if (editingColorIndex === null && pColors.length === 0) {
       setCombinationInventory((prev) => {
         const next = { ...prev };
         currentSizes.forEach((sz) => {
           const defaultEntry = next[`default_color__${sz}`];
-          const newKey = `${variantId}__${sz}`;
+          const newKey = `${colorId}__${sz}`;
           if (defaultEntry && !next[newKey]) {
             next[newKey] = {
-              sku: formatCombinationSku(baseVariantSku, trimmedName, sz),
+              sku: formatCombinationSku(pSku.trim() || 'ZD-001', trimmed, sz),
               stockQuantity: defaultEntry.stockQuantity,
               isActive: defaultEntry.isActive,
             };
@@ -675,53 +851,49 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       });
     }
 
-    const updatedVariant: ProductVariant = {
-      id: variantId,
-      colorName: trimmedName,
-      colorCode: vColorCode,
-      sku: baseVariantSku,
-      price: parsedPrice,
-      salePrice: parsedSalePrice,
-      stock: derivedColorStock,
-      images: vImages.length > 0 ? vImages : pPrimaryImage.trim() ? [pPrimaryImage.trim()] : [],
+    const newColorRecord: ProductColor = {
+      id: colorId,
+      name: trimmed,
+      hex: cHexInput,
     };
 
-    if (editingVariantIndex !== null) {
-      const next = [...pVariants];
-      next[editingVariantIndex] = updatedVariant;
-      setPVariants(next);
+    if (editingColorIndex !== null) {
+      const next = [...pColors];
+      next[editingColorIndex] = newColorRecord;
+      setPColors(next);
     } else {
-      setPVariants([...pVariants, updatedVariant]);
+      setPColors([...pColors, newColorRecord]);
     }
+
     setShowColorModal(false);
   };
 
-  const handleDeleteVariant = (idx: number) => {
-    const targetVar = pVariants[idx];
-    if (!targetVar) return;
+  const handleDeleteColor = (idx: number) => {
+    const targetColor = pColors[idx];
+    if (!targetColor) return;
     setPendingRemovalWarning(null);
 
-    const varStockTotal = effectiveSizeEntries.reduce((sum, sz) => {
-      const entry = combinationInventory[`${targetVar.id}__${sz}`];
+    const colorStockTotal = effectiveSizeEntries.reduce((sum, sz) => {
+      const entry = combinationInventory[`${targetColor.id}__${sz}`];
       const qty = entry ? Math.max(0, Math.floor(Number(entry.stockQuantity) || 0)) : 0;
       return sum + qty;
     }, 0);
-    const hasOrders = hasOrderHistoryForVariant(targetVar.id);
+    const hasOrders = hasOrderHistoryForColor(targetColor.id);
 
-    if (varStockTotal > 0 || hasOrders) {
+    if (colorStockTotal > 0 || hasOrders) {
       setPendingRemovalWarning({
-        message: `Colour variant "${targetVar.colorName}" currently has ${varStockTotal} unit(s) in stock${
+        message: `Colour "${targetColor.name}" currently has ${colorStockTotal} unit(s) in stock${
           hasOrders ? ' and existing customer order history' : ''
-        }. Removing this colour will remove all of its Colour + Size inventory combinations.`,
+        }. Removing this colour will remove its Colour + Size inventory combinations.`,
         onConfirm: () => {
-          setPVariants((prev) => prev.filter((_, i) => i !== idx));
+          setPColors((prev) => prev.filter((_, i) => i !== idx));
           setPendingRemovalWarning(null);
         },
       });
       return;
     }
 
-    setPVariants(pVariants.filter((_, i) => i !== idx));
+    setPColors(pColors.filter((_, i) => i !== idx));
   };
 
   // Custom Spec Builder helpers
@@ -787,10 +959,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     // 3. Validate Primary Image when publishing
     const hasAnyImage =
       pPrimaryImage.trim() !== '' ||
-      pAdditionalImages.length > 0 ||
-      pVariants.some((v) => v.images && v.images.length > 0);
+      pGalleryImages.length > 0;
     if (finalStatus === 'published' && !hasAnyImage) {
-      setValidationError('Please provide a Primary Product Image URL in Section 3 before publishing.');
+      setValidationError('Please provide at least one product image in Section 3 before publishing.');
       setActiveSection(3);
       return;
     }
@@ -798,9 +969,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     // 4. Validate Manual Size Selection when size/option model is active
     if (finalStatus === 'published' && variantType !== 'none' && pAvailableSizes.length === 0) {
       setValidationError(
-        'Please manually select at least one available size/option in Section 4, or switch the Purchase Option Model to "No Sizes / Single Unit" if sizes are not applicable.'
+        'Please manually select at least one available size/option in Section 5, or switch the Purchase Option Model to "No Sizes / Single Unit" if sizes are not applicable.'
       );
-      setActiveSection(4);
+      setActiveSection(5);
       return;
     }
 
@@ -813,9 +984,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       });
       if (missingRequiredField) {
         setValidationError(
-          `The field "${missingRequiredField.label}" is marked as required in this category template (Section 5).`
+          `The field "${missingRequiredField.label}" is marked as required in this category template (Section 6).`
         );
-        setActiveSection(5);
+        setActiveSection(6);
         return;
       }
     }
@@ -823,8 +994,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     // 6. Validate Base Price
     const numericPrice = parseFloat(pPrice);
     if (Number.isNaN(numericPrice) || numericPrice <= 0) {
-      setValidationError('Please enter a valid Base Retail Price (greater than 0) in Section 7.');
-      setActiveSection(7);
+      setValidationError('Please enter a valid Base Retail Price (greater than 0) in Section 8.');
+      setActiveSection(8);
       return;
     }
 
@@ -882,10 +1053,20 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const finalSizes = variantType === 'none' ? [] : [...pAvailableSizes];
     const sizeKeysForInventory = finalSizes.length > 0 ? finalSizes : ['Single Unit'];
 
-    const allProductImages = [
-      ...(pPrimaryImage.trim() ? [pPrimaryImage.trim()] : []),
-      ...pAdditionalImages.filter((u) => u.trim() !== ''),
-    ];
+    // Common Product Image Gallery
+    const finalGalleryImages = [...pGalleryImages];
+    if (pPrimaryImage.trim() && !finalGalleryImages.includes(pPrimaryImage.trim())) {
+      finalGalleryImages.unshift(pPrimaryImage.trim());
+    } else if (pPrimaryImage.trim() && finalGalleryImages.includes(pPrimaryImage.trim())) {
+      const without = finalGalleryImages.filter((img) => img !== pPrimaryImage.trim());
+      finalGalleryImages.splice(0, finalGalleryImages.length, pPrimaryImage.trim(), ...without);
+    }
+
+    if (finalGalleryImages.length === 0) {
+      setActiveSection(3);
+      setValidationError('Please provide at least one product image in Section 3 (Product Images).');
+      return;
+    }
 
     const previousBasePrice = editingProduct?.price;
     const previousSalePrice = editingProduct?.salePrice;
@@ -893,39 +1074,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     const builtCombinations: VariantStockCombination[] = [];
 
-    // Prepare variants and their Colour + Size combination stock maps
+    // Prepare variants from decoupled Product Colors and their Colour + Size combination stock maps
     const finalVariants: ProductVariant[] =
-      pVariants.length > 0
-        ? pVariants.map((v, idx) => {
-            const effectiveVarPrice =
-              !v.price || v.price <= 0 || (previousBasePrice !== undefined && v.price === previousBasePrice)
-                ? numericPrice
-                : v.price;
-
-            const effectiveVarSalePrice =
-              validSalePrice !== undefined && validSalePrice < effectiveVarPrice
-                ? validSalePrice
-                : validSalePrice === undefined &&
-                  previousSalePrice !== undefined &&
-                  v.salePrice === previousSalePrice
-                ? undefined
-                : v.salePrice && v.salePrice > 0 && v.salePrice < effectiveVarPrice
-                ? v.salePrice
-                : undefined;
-
-            const effectiveVarImages =
-              idx === 0 && allProductImages.length > 0
-                ? allProductImages
-                : v.images && v.images.length > 0
-                ? v.images
-                : allProductImages;
-
+      pColors.length > 0
+        ? pColors.map((c, idx) => {
             const sizeStockMap: Record<string, number> = {};
             const sizeSkuMap: Record<string, string> = {};
             const disabledSizesList: string[] = [];
 
             sizeKeysForInventory.forEach((sz) => {
-              const comboKey = `${v.id}__${sz}`;
+              const comboKey = `${c.id}__${sz}`;
               const cell = combinationInventory[comboKey];
               const rawQty =
                 cell && cell.stockQuantity.trim() !== ''
@@ -934,7 +1092,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               const isComboActive = cell ? cell.isActive : true;
               const comboSku =
                 cell?.sku?.trim() ||
-                formatCombinationSku(v.sku || pSku.trim() || productId, v.colorName, sz);
+                formatCombinationSku(pSku.trim() || productId, c.name, sz);
 
               sizeStockMap[sz] = isComboActive ? rawQty : 0;
               sizeSkuMap[sz] = comboSku;
@@ -944,15 +1102,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
               builtCombinations.push({
                 id: comboKey,
-                colorId: v.id,
-                colorName: v.colorName,
-                colorCode: v.colorCode,
+                colorId: c.id,
+                colorName: c.name,
+                colorCode: c.hex,
                 size: sz,
                 sku: comboSku,
                 stockQuantity: isComboActive ? rawQty : 0,
                 isActive: isComboActive,
-                price: effectiveVarPrice,
-                salePrice: effectiveVarSalePrice,
+                price: numericPrice,
+                salePrice: validSalePrice,
               });
             });
 
@@ -962,14 +1120,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             );
 
             return {
-              ...v,
-              price: effectiveVarPrice,
-              salePrice: effectiveVarSalePrice,
+              id: c.id,
+              colorName: c.name,
+              colorCode: c.hex,
+              sku: formatCombinationSku(pSku.trim() || productId, c.name, 'ALL'),
+              price: numericPrice,
+              salePrice: validSalePrice,
               stock: derivedVariantStock,
               sizeStock: sizeStockMap,
               sizeSku: sizeSkuMap,
               disabledSizes: disabledSizesList.length > 0 ? disabledSizesList : undefined,
-              images: effectiveVarImages,
+              images: finalGalleryImages, // Common gallery shared by all variants
             };
           })
         : (() => {
@@ -1026,7 +1187,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 id: carrierId,
                 colorName: carrierColorName,
                 colorCode: '#192E4D',
-                images: allProductImages,
+                images: finalGalleryImages,
                 sku: carrierBaseSku,
                 price: numericPrice,
                 salePrice: validSalePrice,
@@ -1075,10 +1236,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       shippingEligible: pShippingEligible,
       returnEligible: pReturnEligible,
       createdAt: editingProduct?.createdAt || new Date().toISOString(),
+      primaryImage: pPrimaryImage.trim() || finalGalleryImages[0] || '',
+      images: finalGalleryImages,
+      additionalImages: finalGalleryImages.slice(1),
+      colors: pColors,
       variants: finalVariants,
       variantCombinations: builtCombinations,
       totalStock: derivedProductTotalStock,
-      additionalImages: pAdditionalImages.length > 0 ? pAdditionalImages : undefined,
       sizeChartImage: pSizeChartImage.trim() || undefined,
       careImage: pCareImage.trim() || undefined,
       // Optional specification fields saved ONLY when explicitly entered by the admin
@@ -1126,13 +1290,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     { num: 1, title: 'Basic Information' },
     { num: 2, title: 'Category & Type' },
     { num: 3, title: 'Product Images' },
-    { num: 4, title: 'Variants & Sizes' },
-    { num: 5, title: 'Category Specs' },
-    { num: 6, title: 'Custom Specs' },
-    { num: 7, title: 'Pricing & Stock' },
-    { num: 8, title: 'Shipping & Pack' },
-    { num: 9, title: 'Display Settings' },
-    { num: 10, title: 'Preview & Save' },
+    { num: 4, title: 'Product Colors' },
+    { num: 5, title: 'Sizes & Stock' },
+    { num: 6, title: 'Category Specs' },
+    { num: 7, title: 'Custom Specs' },
+    { num: 8, title: 'Pricing & Stock' },
+    { num: 9, title: 'Shipping & Pack' },
+    { num: 10, title: 'Display Settings' },
+    { num: 11, title: 'Preview & Save' },
   ];
 
   const nonEmptySpecCount =
@@ -1452,94 +1617,241 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 3: PRODUCT IMAGES */}
+          {/* SECTION 3: COMMON PRODUCT IMAGES GALLERY */}
           {activeSection === 3 && (
-            <div className="space-y-4 animate-in fade-in-50">
-              <div className="border-b border-[#F0F4F8] pb-2">
-                <h3 className="text-sm font-black text-[#192E4D]">Section 3: Product Images & Visual Guides</h3>
-                <p className="text-xs text-[#697586]">
-                  Provide the primary product image URL and any optional gallery, size chart, or care guide images.
-                </p>
+            <div className="space-y-5 animate-in fade-in-50">
+              <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-[#192E4D]">Section 3: Common Product Images</h3>
+                  <p className="text-xs text-[#697586]">
+                    Upload and organize product images in one common gallery. All images belong to the product as a whole and remain visible across all color selections.
+                  </p>
+                </div>
+                <span className="px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 font-extrabold text-xs shrink-0">
+                  {pGalleryImages.length} Image(s) in Gallery
+                </span>
               </div>
 
-              <div>
-                <label className="font-bold text-[#192E4D] block mb-1">
-                  Primary Product Image URL <span className="text-rose-500">*</span>
-                </label>
-                <div className="flex gap-2">
-                  <input
-                    type="url"
-                    value={pPrimaryImage}
-                    onChange={(e) => {
-                      setPPrimaryImage(e.target.value);
-                      setValidationError(null);
-                    }}
-                    placeholder="https://..."
-                    className="flex-1 h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono font-semibold"
-                  />
-                  {pPrimaryImage.trim() && (
-                    <img
-                      src={pPrimaryImage}
-                      alt="Primary Preview"
-                      className="w-10 h-10 object-cover rounded-xl border border-slate-200"
-                    />
+              {/* Sample image quick-presets */}
+              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                  Quick Load High-Quality Sample Image Sets
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {SAMPLE_IMAGE_SETS.map((set) => (
+                    <button
+                      key={set.label}
+                      type="button"
+                      onClick={() => {
+                        const merged = Array.from(new Set([...pGalleryImages, ...set.images]));
+                        setPGalleryImages(merged);
+                        if (!pPrimaryImage && merged.length > 0) {
+                          setPPrimaryImage(merged[0]);
+                        }
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-[#192E4D] hover:border-[#08A9A2] hover:bg-teal-50/50 cursor-pointer transition-all"
+                    >
+                      + {set.label} ({set.images.length} views)
+                    </button>
+                  ))}
+                  {pGalleryImages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setPGalleryImages([]);
+                        setPPrimaryImage('');
+                      }}
+                      className="px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-600 hover:bg-rose-100 cursor-pointer ml-auto"
+                    >
+                      Clear Gallery
+                    </button>
                   )}
                 </div>
               </div>
 
-              {/* Additional Gallery Images */}
-              <div>
-                <label className="font-bold text-[#192E4D] block mb-1">
-                  Additional Gallery Images <span className="text-gray-400 font-normal">(Optional)</span>
+              {/* Add Single Image URL */}
+              <div className="space-y-2">
+                <label className="font-bold text-[#192E4D] text-xs block">
+                  Add Product Image URL
                 </label>
-                <div className="flex gap-2 mb-2">
+                <div className="flex gap-2">
                   <input
                     type="url"
-                    value={additionalImageInput}
-                    onChange={(e) => setAdditionalImageInput(e.target.value)}
-                    placeholder="https://... additional angle photo"
-                    className="flex-1 h-9 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono"
+                    value={galleryImageInput}
+                    onChange={(e) => setGalleryImageInput(e.target.value)}
+                    onKeyDown={(e) => {
+                      if (e.key === 'Enter') {
+                        e.preventDefault();
+                        handleAddGalleryImage();
+                      }
+                    }}
+                    placeholder="https://images.unsplash.com/... product angle photo"
+                    className="flex-1 h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
                   />
                   <button
                     type="button"
-                    onClick={() => {
-                      if (additionalImageInput.trim()) {
-                        setPAdditionalImages([...pAdditionalImages, additionalImageInput.trim()]);
-                        setAdditionalImageInput('');
-                      }
-                    }}
-                    className="px-3.5 h-9 bg-[#192E4D] text-white rounded-xl text-xs font-bold cursor-pointer"
+                    onClick={() => handleAddGalleryImage()}
+                    className="px-4 h-10 bg-[#08A9A2] hover:bg-[#079690] text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
                   >
-                    + Add Image
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add to Gallery</span>
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setShowBulkInput(!showBulkInput)}
+                    className="px-3 h-10 bg-white border border-[#E6EAF0] hover:bg-slate-50 text-[#192E4D] rounded-xl text-xs font-bold cursor-pointer transition-colors shrink-0"
+                  >
+                    {showBulkInput ? 'Close Bulk' : 'Bulk URLs'}
                   </button>
                 </div>
-                {pAdditionalImages.length > 0 && (
-                  <div className="flex items-center gap-2 flex-wrap">
-                    {pAdditionalImages.map((img, i) => (
-                      <div key={i} className="relative group">
-                        <img
-                          src={img}
-                          alt=""
-                          className="w-12 h-12 object-cover rounded-xl border border-slate-200"
-                        />
-                        <button
-                          type="button"
-                          onClick={() =>
-                            setPAdditionalImages(pAdditionalImages.filter((_, idx) => idx !== i))
-                          }
-                          className="absolute -top-1.5 -right-1.5 w-4 h-4 rounded-full bg-rose-600 text-white text-[10px] flex items-center justify-center"
+              </div>
+
+              {/* Bulk Image URLs Drawer */}
+              {showBulkInput && (
+                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 animate-in fade-in-50">
+                  <div className="flex items-center justify-between">
+                    <label className="text-xs font-extrabold text-[#192E4D]">
+                      Paste Multiple Image URLs (one per line or comma-separated)
+                    </label>
+                  </div>
+                  <textarea
+                    rows={3}
+                    value={bulkImageInput}
+                    onChange={(e) => setBulkImageInput(e.target.value)}
+                    placeholder="https://images.unsplash.com/photo-1...&#10;https://images.unsplash.com/photo-2...&#10;https://images.unsplash.com/photo-3..."
+                    className="w-full p-2.5 border border-[#E6EAF0] rounded-xl text-xs font-mono bg-white"
+                  />
+                  <div className="flex justify-end gap-2">
+                    <button
+                      type="button"
+                      onClick={() => setShowBulkInput(false)}
+                      className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-bold text-gray-600 bg-white cursor-pointer"
+                    >
+                      Cancel
+                    </button>
+                    <button
+                      type="button"
+                      onClick={handleBulkAddImages}
+                      className="px-4 py-1.5 rounded-lg bg-[#192E4D] text-white text-xs font-bold cursor-pointer"
+                    >
+                      Add All URLs
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Common Gallery Grid */}
+              <div className="space-y-2">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-[#192E4D] text-xs">
+                    Common Product Gallery ({pGalleryImages.length} Image{pGalleryImages.length !== 1 ? 's' : ''})
+                  </label>
+                  <span className="text-[11px] text-gray-500 font-medium">
+                    The primary image is shown first on catalog cards and store listings.
+                  </span>
+                </div>
+
+                {pGalleryImages.length === 0 ? (
+                  <div className="p-8 rounded-2xl border-2 border-dashed border-gray-300 bg-slate-50/50 text-center space-y-2">
+                    <ImageIcon className="w-8 h-8 text-gray-400 mx-auto" />
+                    <p className="font-bold text-gray-600 text-xs">
+                      No common images added to gallery yet.
+                    </p>
+                    <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
+                      Add image URLs above or click one of the quick sample sets to populate the product gallery.
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                    {pGalleryImages.map((img, idx) => {
+                      const isPrimary = pPrimaryImage === img;
+                      return (
+                        <div
+                          key={img + idx}
+                          className={`relative group rounded-2xl border p-2 bg-white flex flex-col justify-between transition-all ${
+                            isPrimary
+                              ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/30 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-400'
+                          }`}
                         >
-                          ×
-                        </button>
-                      </div>
-                    ))}
+                          <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100">
+                            <img
+                              src={img}
+                              alt={`Product view ${idx + 1}`}
+                              className="w-full h-full object-cover"
+                              onError={(e) => {
+                                (e.currentTarget as HTMLImageElement).src =
+                                  'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500&auto=format&fit=crop&q=80';
+                              }}
+                            />
+                            {isPrimary && (
+                              <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm">
+                                <Star className="w-3 h-3 fill-current" />
+                                <span>PRIMARY</span>
+                              </div>
+                            )}
+                            <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-mono">
+                              #{idx + 1}
+                            </div>
+                          </div>
+
+                          <div className="pt-2 flex items-center justify-between gap-1">
+                            {!isPrimary ? (
+                              <button
+                                type="button"
+                                onClick={() => handleSetPrimaryImage(img)}
+                                className="px-2 py-1 rounded-lg bg-teal-50 text-[#08A9A2] hover:bg-teal-100 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Set as primary image"
+                              >
+                                <Star className="w-3 h-3" />
+                                <span>Set Primary</span>
+                              </button>
+                            ) : (
+                              <span className="text-[10px] font-bold text-teal-700 px-1.5">
+                                Primary View
+                              </span>
+                            )}
+
+                            <div className="flex items-center gap-0.5 ml-auto">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveImage(idx, 'left')}
+                                className="p-1 rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                                title="Move Earlier"
+                              >
+                                <ChevronLeft className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === pGalleryImages.length - 1}
+                                onClick={() => handleMoveImage(idx, 'right')}
+                                className="p-1 rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
+                                title="Move Later"
+                              >
+                                <ChevronRight className="w-3.5 h-3.5" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleRemoveGalleryImage(idx)}
+                                className="p-1 rounded-md text-rose-500 hover:bg-rose-50 cursor-pointer"
+                                title="Remove image"
+                              >
+                                <Trash2 className="w-3.5 h-3.5" />
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
                   </div>
                 )}
               </div>
 
-              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2">
+              {/* Optional Visual Guides: Size Chart & Care */}
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3 pt-2 border-t border-[#F0F4F8]">
                 <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">
+                  <label className="font-bold text-[#192E4D] block mb-1 text-xs">
                     Size Chart Diagram Image <span className="text-gray-400 font-normal">(Optional)</span>
                   </label>
                   <input
@@ -1547,12 +1859,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     value={pSizeChartImage}
                     onChange={(e) => setPSizeChartImage(e.target.value)}
                     placeholder="https://... size-chart.jpg"
-                    className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono"
+                    className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono bg-white"
                   />
                 </div>
 
                 <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">
+                  <label className="font-bold text-[#192E4D] block mb-1 text-xs">
                     Fabric & Care Guide Image <span className="text-gray-400 font-normal">(Optional)</span>
                   </label>
                   <input
@@ -1560,23 +1872,180 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     value={pCareImage}
                     onChange={(e) => setPCareImage(e.target.value)}
                     placeholder="https://... care-guide.jpg"
-                    className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono"
+                    className="w-full h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono bg-white"
                   />
                 </div>
               </div>
             </div>
           )}
 
-          {/* SECTION 4: PRODUCT VARIANTS AND SIZES */}
+          {/* SECTION 4: PRODUCT COLORS (INDEPENDENT) */}
           {activeSection === 4 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-black text-[#192E4D]">
-                    Section 4: Product Variants, Sizes & Combination Inventory
+                    Section 4: Product Colors (Independent)
                   </h3>
                   <p className="text-xs text-[#697586]">
-                    Manage colours, sizes, and exact Colour + Size combination stock in one unified place. No size or colour is selected automatically.
+                    Add and manage product colors independently. Colors are completely decoupled from images, and all product photos remain available across all color options.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={openAddColorModal}
+                  className="px-3.5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95 shrink-0"
+                >
+                  <Plus className="w-3.5 h-3.5" />
+                  <span>+ Add Product Color</span>
+                </button>
+              </div>
+
+              {pendingRemovalWarning && (
+                <div className="p-3.5 rounded-xl bg-amber-50 border border-amber-300 text-amber-900 text-xs space-y-2.5 shadow-2xs">
+                  <div className="flex items-center gap-2 font-extrabold text-amber-800">
+                    <AlertTriangle className="w-4 h-4 text-amber-600 shrink-0" />
+                    <span>Inventory / Order History Warning</span>
+                  </div>
+                  <p className="font-medium leading-relaxed">{pendingRemovalWarning.message}</p>
+                  <div className="flex items-center gap-2 pt-1">
+                    <button
+                      type="button"
+                      onClick={() => setPendingRemovalWarning(null)}
+                      className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-gray-700 font-bold text-xs cursor-pointer"
+                    >
+                      Keep Color
+                    </button>
+                    <button
+                      type="button"
+                      onClick={pendingRemovalWarning.onConfirm}
+                      className="px-3 py-1.5 rounded-lg bg-rose-600 hover:bg-rose-700 text-white font-bold text-xs cursor-pointer"
+                    >
+                      Confirm Removal
+                    </button>
+                  </div>
+                </div>
+              )}
+
+              {/* Quick Preset Colors Picker */}
+              <div className="p-3.5 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2">
+                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                  Click to Quick-Add Preset Product Colors
+                </span>
+                <div className="flex flex-wrap gap-2">
+                  {PRESET_COLORS.map((preset) => {
+                    const alreadyAdded = pColors.some(
+                      (c) => c.name.toLowerCase() === preset.name.toLowerCase()
+                    );
+                    return (
+                      <button
+                        key={preset.name}
+                        type="button"
+                        disabled={alreadyAdded}
+                        onClick={() => {
+                          if (!alreadyAdded) {
+                            const newCol: ProductColor = {
+                              id: `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+                              name: preset.name,
+                              hex: preset.hex,
+                            };
+                            setPColors([...pColors, newCol]);
+                          }
+                        }}
+                        className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
+                          alreadyAdded
+                            ? 'bg-teal-50 text-teal-800 border-teal-200 opacity-60'
+                            : 'bg-white text-[#192E4D] border-gray-200 hover:border-[#08A9A2]'
+                        }`}
+                      >
+                        <span
+                          className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0"
+                          style={{ backgroundColor: preset.hex }}
+                        />
+                        <span>{preset.name}</span>
+                        {alreadyAdded && <Check className="w-3 h-3 text-teal-600" />}
+                      </button>
+                    );
+                  })}
+                </div>
+              </div>
+
+              {/* Configured Colors List */}
+              <div className="p-4 rounded-2xl bg-white border border-[#E6EAF0] space-y-3">
+                <div className="flex items-center justify-between">
+                  <h4 className="font-extrabold text-[#192E4D] text-xs uppercase tracking-wider">
+                    Configured Colors ({pColors.length})
+                  </h4>
+                  <span className="text-[11px] text-gray-500">
+                    Each color generates distinct size inventory rows in Section 5.
+                  </span>
+                </div>
+
+                {pColors.length === 0 ? (
+                  <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500 space-y-1">
+                    <p className="font-bold text-[#192E4D]">No specific colors added yet.</p>
+                    <p className="text-[11px] text-gray-400">
+                      Product inventory below will default to "Standard". Click{' '}
+                      <span className="font-bold text-[#08A9A2]">+ Add Product Color</span> or choose preset chips above to add colors (e.g. Black, White, Blue).
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
+                    {pColors.map((color, idx) => (
+                      <div
+                        key={color.id || idx}
+                        className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex items-center justify-between gap-2 shadow-2xs hover:border-slate-300 transition-colors"
+                      >
+                        <div className="flex items-center gap-2.5 truncate">
+                          <div
+                            className="w-7 h-7 rounded-full border-2 border-white shadow-sm shrink-0"
+                            style={{ backgroundColor: color.hex }}
+                          />
+                          <div className="truncate">
+                            <span className="font-extrabold text-[#192E4D] text-xs block truncate">
+                              {color.name}
+                            </span>
+                            <span className="font-mono text-[10px] text-gray-400 block uppercase">
+                              {color.hex}
+                            </span>
+                          </div>
+                        </div>
+
+                        <div className="flex items-center gap-1 shrink-0">
+                          <button
+                            type="button"
+                            onClick={() => openEditColorModal(idx)}
+                            className="px-2 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-[11px] hover:bg-teal-100 cursor-pointer"
+                          >
+                            Edit
+                          </button>
+                          <button
+                            type="button"
+                            onClick={() => handleDeleteColor(idx)}
+                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                            title="Remove color"
+                          >
+                            <Trash2 className="w-3.5 h-3.5" />
+                          </button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            </div>
+          )}
+
+          {/* SECTION 5: SIZES & COMBINATION INVENTORY */}
+          {activeSection === 5 && (
+            <div className="space-y-4 animate-in fade-in-50">
+              <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
+                <div>
+                  <h3 className="text-sm font-black text-[#192E4D]">
+                    Section 5: Sizes & Combination Inventory Table
+                  </h3>
+                  <p className="text-xs text-[#697586]">
+                    Select available sizes and manage exact Colour + Size combination stock in one unified place. No size is selected automatically.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
@@ -1599,7 +2068,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       onClick={() => setPendingRemovalWarning(null)}
                       className="px-3 py-1.5 rounded-lg bg-white border border-amber-300 text-gray-700 font-bold text-xs cursor-pointer"
                     >
-                      Keep Variant / Size
+                      Keep Size
                     </button>
                     <button
                       type="button"
@@ -1743,111 +2212,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                         + Add & Select Option
                       </button>
                     </div>
-                  </div>
-                )}
-              </div>
-
-              {/* Color Variants List with independent images */}
-              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-3">
-                <div className="flex items-center justify-between">
-                  <div>
-                    <h4 className="font-extrabold text-[#192E4D] text-xs uppercase tracking-wider">
-                      Product Colours & Gallery Images ({pVariants.length} Configured)
-                    </h4>
-                    <p className="text-[11px] text-[#697586]">
-                      Add product colours and upload/link images for each colour. Adding or removing colours automatically updates the Colour + Size inventory table below.
-                    </p>
-                  </div>
-                  <button
-                    type="button"
-                    onClick={openAddColorModal}
-                    className="px-3 py-1.5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1 shadow-xs transition-all active:scale-95 cursor-pointer shrink-0"
-                  >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Colour Variant</span>
-                  </button>
-                </div>
-
-                {pVariants.length === 0 ? (
-                  <div className="p-3.5 bg-white rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500">
-                    No separate colour variants added yet. Stock below is tracked under{' '}
-                    <span className="font-bold text-[#192E4D]">
-                      {pCustomColors.trim() || 'Standard'}
-                    </span>
-                    . Click <span className="font-bold text-[#08A9A2]">+ Add Colour Variant</span> above to manage multiple colours (e.g. Black, White, Blue) with their own images and per-size stock.
-                  </div>
-                ) : (
-                  <div className="space-y-2">
-                    {pVariants.map((v, idx) => {
-                      const colorDerivedStock = activeCombinationRows
-                        .filter((r) => r.colorId === v.id && r.isActive)
-                        .reduce((s, r) => s + r.stockQuantityNum, 0);
-                      return (
-                        <div
-                          key={v.id || idx}
-                          className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex flex-col sm:flex-row sm:items-center justify-between gap-3 shadow-2xs"
-                        >
-                          <div className="flex items-center gap-3">
-                            <div
-                              className="w-8 h-8 rounded-full border-2 border-white shadow-md shrink-0"
-                              style={{ backgroundColor: v.colorCode }}
-                            />
-                            <div>
-                              <div className="flex items-center gap-2">
-                                <span className="font-extrabold text-[#192E4D]">{v.colorName}</span>
-                                {v.sku && (
-                                  <span className="font-mono text-[10px] text-gray-400 bg-gray-50 px-1.5 py-0.5 rounded">
-                                    Base SKU: {v.sku}
-                                  </span>
-                                )}
-                              </div>
-                              <div className="flex items-center gap-2 text-[10px] text-[#697586] mt-0.5">
-                                <span className="font-bold text-teal-700">
-                                  Colour Total Stock: {colorDerivedStock} pcs
-                                </span>
-                                {v.price > 0 && (
-                                  <>
-                                    <span>•</span>
-                                    <span className="font-bold text-[#192E4D]">₹{v.price}</span>
-                                  </>
-                                )}
-                                <span>•</span>
-                                <span>{v.images.length} photo(s)</span>
-                              </div>
-                            </div>
-                          </div>
-
-                          <div className="flex items-center gap-1.5 overflow-x-auto max-w-full">
-                            {v.images.map((img, i) => (
-                              <img
-                                key={i}
-                                src={img}
-                                alt={v.colorName}
-                                className="w-8 h-8 object-cover rounded-lg border"
-                              />
-                            ))}
-                          </div>
-
-                          <div className="flex items-center gap-1.5 shrink-0 self-end sm:self-auto">
-                            <button
-                              type="button"
-                              onClick={() => openEditColorModal(idx)}
-                              className="px-2.5 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-xs hover:bg-teal-100 cursor-pointer"
-                            >
-                              Edit Colour / Photos
-                            </button>
-                            <button
-                              type="button"
-                              onClick={() => handleDeleteVariant(idx)}
-                              className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
-                              title="Remove colour variant"
-                            >
-                              <Trash2 className="w-3.5 h-3.5" />
-                            </button>
-                          </div>
-                        </div>
-                      );
-                    })}
                   </div>
                 )}
               </div>
@@ -2013,13 +2377,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 5: CATEGORY-SPECIFIC SPECIFICATIONS */}
-          {activeSection === 5 && (
+          {/* SECTION 6: CATEGORY-SPECIFIC SPECIFICATIONS */}
+          {activeSection === 6 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2 flex items-center justify-between">
                 <div>
                   <h3 className="text-sm font-black text-[#192E4D]">
-                    Section 5: Category-Specific Specifications (
+                    Section 6: Category-Specific Specifications (
                     {pMainCat
                       ? currentTemplate.name || currentTemplate.categoryName
                       : 'General Specifications'}
@@ -2242,12 +2606,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 6: CUSTOM SPECIFICATIONS BUILDER */}
-          {activeSection === 6 && (
+          {/* SECTION 7: CUSTOM SPECIFICATIONS BUILDER */}
+          {activeSection === 7 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
                 <h3 className="text-sm font-black text-[#192E4D]">
-                  Section 6: Additional Custom Specifications (Optional)
+                  Section 7: Additional Custom Specifications (Optional)
                 </h3>
                 <p className="text-xs text-[#697586]">
                   Add custom key-value specification rows unique to this product.
@@ -2343,13 +2707,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 7: PRICING & VARIANT INVENTORY SUMMARY */}
-          {activeSection === 7 && (
+          {/* SECTION 8: PRICING & VARIANT INVENTORY SUMMARY */}
+          {activeSection === 8 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
-                <h3 className="text-sm font-black text-[#192E4D]">Section 7: Price & Variant Stock Summary</h3>
+                <h3 className="text-sm font-black text-[#192E4D]">Section 8: Price & Variant Stock Summary</h3>
                 <p className="text-xs text-[#697586]">
-                  Configure product retail and promotional sale pricing. Product stock is strictly derived from the Colour + Size inventory table in Section 4.
+                  Configure product retail and promotional sale pricing. Product stock is strictly derived from the Colour + Size inventory table in Section 5.
                 </p>
               </div>
 
@@ -2394,7 +2758,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       Read-Only Variant Inventory Summary
                     </h4>
                     <p className="text-[11px] text-[#697586]">
-                      Global stock inputs have been removed to prevent inventory conflicts. Edit individual Colour + Size quantities in Section 4.
+                      Global stock inputs have been removed to prevent inventory conflicts. Edit individual Colour + Size quantities in Section 5.
                     </p>
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
@@ -2403,10 +2767,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     </span>
                     <button
                       type="button"
-                      onClick={() => setActiveSection(4)}
+                      onClick={() => setActiveSection(5)}
                       className="px-3 py-1.5 rounded-xl bg-[#192E4D] hover:bg-slate-800 text-white font-bold text-xs cursor-pointer"
                     >
-                      Edit Colour + Size Stock (Sec 4)
+                      Edit Colour + Size Stock (Sec 5)
                     </button>
                   </div>
                 </div>
@@ -2450,12 +2814,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 8: SHIPPING & PACKAGING */}
-          {activeSection === 8 && (
+          {/* SECTION 9: SHIPPING & PACKAGING */}
+          {activeSection === 9 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
                 <h3 className="text-sm font-black text-[#192E4D]">
-                  Section 8: Shipping, Packaging & Compliance (Optional)
+                  Section 9: Shipping, Packaging & Compliance (Optional)
                 </h3>
                 <p className="text-xs text-[#697586]">
                   All fields below are optional and start blank.
@@ -2540,12 +2904,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 9: CUSTOMER DISPLAY SETTINGS */}
-          {activeSection === 9 && (
+          {/* SECTION 10: CUSTOMER DISPLAY SETTINGS */}
+          {activeSection === 10 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
                 <h3 className="text-sm font-black text-[#192E4D]">
-                  Section 9: Customer Display Badges & Status
+                  Section 10: Customer Display Badges & Status
                 </h3>
                 <p className="text-xs text-[#697586]">
                   Choose optional promotional badges and publication visibility.
@@ -2627,12 +2991,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 10: PREVIEW & PUBLISH */}
-          {activeSection === 10 && (
+          {/* SECTION 11: PREVIEW & PUBLISH */}
+          {activeSection === 11 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2">
                 <h3 className="text-sm font-black text-[#192E4D]">
-                  Section 10: Summary & Confirmation
+                  Section 11: Summary & Confirmation
                 </h3>
                 <p className="text-xs text-[#697586]">
                   Review only the information explicitly entered for this product before saving.
@@ -2681,10 +3045,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 pt-2 border-t border-slate-200 text-[11px]">
                   <div>
-                    <span className="text-gray-400 block">Colour Variants:</span>
+                    <span className="text-gray-400 block">Product Colors:</span>
                     <span className="font-bold">
-                      {pVariants.length > 0
-                        ? pVariants.map((v) => v.colorName).join(', ')
+                      {pColors.length > 0
+                        ? pColors.map((c) => c.name).join(', ')
                         : pCustomColors.trim() || 'Standard'}
                     </span>
                   </div>
@@ -2699,15 +3063,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block">Derived Total Stock:</span>
-                    <span className="font-extrabold text-[#08A9A2]">
-                      {derivedTotalStock} pcs ({activeCombinationRows.filter((r) => r.isActive).length} combinations)
+                    <span className="text-gray-400 block">Common Gallery:</span>
+                    <span className="font-bold">
+                      {pGalleryImages.length} Image(s)
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block">Entered Specs:</span>
-                    <span className="font-bold">
-                      {nonEmptySpecCount} field(s) • {customSpecs.length} custom
+                    <span className="text-gray-400 block">Derived Total Stock:</span>
+                    <span className="font-extrabold text-[#08A9A2]">
+                      {derivedTotalStock} pcs ({activeCombinationRows.filter((r) => r.isActive).length} active combinations)
                     </span>
                   </div>
                 </div>
@@ -2728,7 +3092,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 Previous
               </button>
             )}
-            {activeSection < 10 && (
+            {activeSection < 11 && (
               <button
                 type="button"
                 onClick={() => setActiveSection((s) => s + 1)}
@@ -2764,14 +3128,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
 
-        {/* SUB-MODAL: COLOR VARIANT EDITOR */}
+        {/* SUB-MODAL: INDEPENDENT COLOR EDITOR */}
         {showColorModal && (
           <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
             <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl space-y-4 text-xs animate-in zoom-in-95">
               <div className="flex items-center justify-between border-b pb-2">
-                <h4 className="font-extrabold text-[#192E4D] text-sm">
-                  {editingVariantIndex !== null ? 'Edit Color Variant' : 'Add Color Variant'}
-                </h4>
+                <div className="flex items-center gap-2">
+                  <Palette className="w-4 h-4 text-[#08A9A2]" />
+                  <h4 className="font-extrabold text-[#192E4D] text-sm">
+                    {editingColorIndex !== null ? 'Edit Product Color' : 'Add Product Color'}
+                  </h4>
+                </div>
                 <button
                   type="button"
                   onClick={() => setShowColorModal(false)}
@@ -2788,132 +3155,85 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               )}
 
               <div>
-                <label className="font-bold text-[#192E4D] block mb-1">Color Name *</label>
+                <label className="font-bold text-[#192E4D] block mb-1">
+                  Color Name <span className="text-rose-500">*</span>
+                </label>
                 <input
                   type="text"
-                  value={vColorName}
+                  value={cNameInput}
                   onChange={(e) => {
-                    setVColorName(e.target.value);
+                    setCNameInput(e.target.value);
                     setColorModalError(null);
                   }}
-                  placeholder="Enter color name (e.g. Black, Navy Blue)"
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold"
+                  placeholder="e.g. Jet Black, Pure White, Royal Navy"
+                  className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
                 />
               </div>
 
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">Color Swatch</label>
-                  <div className="flex items-center gap-2">
-                    <input
-                      type="color"
-                      value={vColorCode}
-                      onChange={(e) => setVColorCode(e.target.value)}
-                      className="w-9 h-9 rounded-lg border cursor-pointer"
-                    />
-                    <input
-                      type="text"
-                      value={vColorCode}
-                      onChange={(e) => setVColorCode(e.target.value)}
-                      className="w-full h-9 px-2 border rounded-lg font-mono text-xs"
-                    />
-                  </div>
-                </div>
-
-                <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">Variant Price (₹)</label>
+              <div>
+                <label className="font-bold text-[#192E4D] block mb-1">Color Swatch & Hex Code</label>
+                <div className="flex items-center gap-2">
                   <input
-                    type="number"
-                    value={vPrice}
-                    onChange={(e) => setVPrice(e.target.value)}
-                    placeholder={pPrice || 'Base price'}
-                    className="w-full h-9 px-2 border rounded-lg font-bold"
+                    type="color"
+                    value={cHexInput}
+                    onChange={(e) => setCHexInput(e.target.value)}
+                    className="w-10 h-10 rounded-xl border border-gray-200 cursor-pointer p-0.5 bg-white"
                   />
-                </div>
-              </div>
-
-              <div className="grid grid-cols-2 gap-2">
-                <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">Base Colour SKU (Optional)</label>
                   <input
                     type="text"
-                    value={vSku}
-                    onChange={(e) => setVSku(e.target.value)}
-                    placeholder="e.g. ZD-001-BLK"
-                    className="w-full h-9 px-2 border rounded-lg font-mono"
-                  />
-                </div>
-                <div>
-                  <label className="font-bold text-[#192E4D] block mb-1">Promotional Sale Price (₹)</label>
-                  <input
-                    type="number"
-                    value={vSalePrice}
-                    onChange={(e) => setVSalePrice(e.target.value)}
-                    placeholder={pSalePrice || 'Optional'}
-                    className="w-full h-9 px-2 border rounded-lg font-bold text-teal-700"
+                    value={cHexInput}
+                    onChange={(e) => setCHexInput(e.target.value)}
+                    placeholder="#000000"
+                    className="w-full h-10 px-3 border border-gray-200 rounded-xl font-mono text-xs uppercase font-bold"
                   />
                 </div>
               </div>
-              <p className="text-[11px] text-teal-800 bg-teal-50 border border-teal-200 rounded-xl p-2.5 font-medium">
-                Stock quantities for this colour are managed per size in the <strong>Colour + Size Combination Inventory Table</strong> in Section 4.
-              </p>
 
-              {/* Photos for this color */}
-              <div>
-                <label className="font-bold text-[#192E4D] block mb-1">
-                  Photos for this Color ({vImages.length})
-                </label>
-                <div className="flex gap-2 mb-2">
-                  <input
-                    type="url"
-                    value={vImageUrlInput}
-                    onChange={(e) => setVImageUrlInput(e.target.value)}
-                    placeholder="https://..."
-                    className="flex-1 h-9 px-2 border rounded-lg text-xs"
-                  />
-                  <button
-                    type="button"
-                    onClick={() => {
-                      if (vImageUrlInput.trim()) {
-                        setVImages([...vImages, vImageUrlInput.trim()]);
-                        setVImageUrlInput('');
-                      }
-                    }}
-                    className="px-3 h-9 bg-[#192E4D] text-white rounded-lg font-bold cursor-pointer"
-                  >
-                    Add
-                  </button>
-                </div>
-                <div className="flex items-center gap-1.5 overflow-x-auto">
-                  {vImages.map((img, idx) => (
-                    <div key={idx} className="relative group">
-                      <img src={img} alt="" className="w-10 h-10 object-cover rounded-lg border" />
-                      <button
-                        type="button"
-                        onClick={() => setVImages(vImages.filter((_, i) => i !== idx))}
-                        className="absolute -top-1 -right-1 w-4 h-4 bg-rose-600 text-white rounded-full flex items-center justify-center text-[10px]"
-                      >
-                        ×
-                      </button>
-                    </div>
+              {/* Preset swatches */}
+              <div className="space-y-1.5 pt-1">
+                <span className="text-[11px] font-bold text-gray-500 block">
+                  Quick Palette Suggestions:
+                </span>
+                <div className="flex flex-wrap gap-1.5">
+                  {PRESET_COLORS.map((preset) => (
+                    <button
+                      key={preset.name}
+                      type="button"
+                      onClick={() => {
+                        setCNameInput(preset.name);
+                        setCHexInput(preset.hex);
+                        setColorModalError(null);
+                      }}
+                      className="px-2 py-1 rounded-lg border border-gray-200 bg-slate-50 hover:bg-slate-100 text-[11px] font-bold flex items-center gap-1.5 cursor-pointer"
+                    >
+                      <span
+                        className="w-3 h-3 rounded-full border border-gray-300 shrink-0"
+                        style={{ backgroundColor: preset.hex }}
+                      />
+                      <span>{preset.name}</span>
+                    </button>
                   ))}
                 </div>
+              </div>
+
+              <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl text-[11px] text-teal-900 leading-relaxed">
+                Colors are independent and not linked to individual photos. All uploaded product images remain in the common gallery and are visible across all colors on the storefront.
               </div>
 
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <button
                   type="button"
                   onClick={() => setShowColorModal(false)}
-                  className="px-3 py-1.5 rounded-lg text-gray-500 font-bold cursor-pointer"
+                  className="px-3.5 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 cursor-pointer text-xs"
                 >
                   Cancel
                 </button>
                 <button
                   type="button"
-                  onClick={handleSaveColorVariant}
-                  className="px-4 py-1.5 bg-[#08A9A2] text-white rounded-lg font-bold cursor-pointer"
+                  onClick={handleSaveColor}
+                  className="px-4 py-2 bg-[#08A9A2] hover:bg-[#079690] text-white rounded-xl font-bold cursor-pointer text-xs shadow-xs"
                 >
-                  Save Color
+                  {editingColorIndex !== null ? 'Update Color' : 'Save Color'}
                 </button>
               </div>
             </div>

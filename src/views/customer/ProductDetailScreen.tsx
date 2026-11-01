@@ -136,11 +136,11 @@ export const ProductDetailScreen: React.FC = () => {
     (!requiresSizeSelection && activeVariant?.sizeSku?.['Single Unit']) ||
     activeVariant?.sku;
 
-  // Handle color variant change
+  // Handle color variant change (CRITICAL: Selecting a color must NEVER filter, replace, hide, or change the product image gallery)
   const handleVariantChange = (index: number) => {
     const nextVar = configuredVariants[index];
     setSelectedVariantIndex(index);
-    setSelectedImageIndex(0);
+    // Do NOT change selectedImageIndex — common gallery remains intact regardless of selected color
     setFeedbackMsg(null);
     if (nextVar && selectedSize) {
       const nextDisabled = (nextVar.disabledSizes || []).includes(selectedSize);
@@ -254,7 +254,23 @@ export const ProductDetailScreen: React.FC = () => {
   };
 
   const productReviews = reviews.filter((r) => r.productId === product.id && r.status === 'approved');
-  const galleryImages = activeVariant?.images?.filter(Boolean) || [];
+
+  // Common product image gallery containing all product photos (Never filtered, replaced, or hidden by color choice)
+  const rawGallery: string[] = [
+    ...(product.primaryImage ? [product.primaryImage] : []),
+    ...(Array.isArray(product.images) ? product.images : []),
+    ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
+    ...((product.variants || []).flatMap((v) => v.images || [])),
+  ];
+  const galleryImages = Array.from(
+    new Set(rawGallery.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean))
+  );
+  if (galleryImages.length === 0) {
+    galleryImages.push('https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80');
+  }
+
+  const activeImageIdx = selectedImageIndex < galleryImages.length ? selectedImageIndex : 0;
+  const currentMainImage = galleryImages[activeImageIdx] || galleryImages[0];
 
   return (
     <div className="flex flex-col min-h-screen bg-white pb-32">
@@ -317,29 +333,29 @@ export const ProductDetailScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Main Image Gallery */}
+      {/* Main Common Image Gallery (All product photos visible regardless of selected color) */}
       {galleryImages.length > 0 && (
         <div className="relative w-full aspect-1/1 bg-[#F6F8FA] overflow-hidden">
           <img
-            src={galleryImages[selectedImageIndex] || galleryImages[0]}
+            src={currentMainImage}
             alt={product.name}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover object-center transition-all duration-300"
           />
 
-          {/* Gallery Thumbnails Overlay */}
+          {/* Common Gallery Thumbnails Overlay */}
           {galleryImages.length > 1 && (
-            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-4">
+            <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-4 overflow-x-auto py-1">
               {galleryImages.map((img, idx) => (
                 <button
                   key={idx}
                   type="button"
                   aria-label={`View image ${idx + 1}`}
                   onClick={() => setSelectedImageIndex(idx)}
-                  className={`w-12 h-12 rounded-xl overflow-hidden border-2 bg-white shadow-sm transition-all cursor-pointer ${
-                    selectedImageIndex === idx
+                  className={`w-12 h-12 rounded-xl overflow-hidden border-2 bg-white shadow-sm transition-all cursor-pointer shrink-0 ${
+                    activeImageIdx === idx
                       ? 'border-[#08A9A2] scale-105 ring-2 ring-[#08A9A2]/30'
-                      : 'border-white opacity-80'
+                      : 'border-white opacity-80 hover:opacity-100'
                   }`}
                 >
                   <img src={img} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />

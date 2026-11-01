@@ -78,6 +78,9 @@ import {
   firestoreDeleteCoupon,
   firestoreSaveCategoryTemplate,
   firestoreDeleteCategoryTemplate,
+  firestoreClearDemoOrders,
+  firestoreResetAllOrders,
+  LEGACY_DEMO_ORDER_IDS,
   seedFirestoreIfEmpty,
   normalizeProductFromFirestore,
   isProductVisibleToCustomer,
@@ -221,6 +224,7 @@ interface AppContextType {
   duplicateHomepageSection: (sectionId: string) => Promise<boolean>;
   saveSingleHomepageSection: (section: HomepageSection) => Promise<boolean>;
   updateOrderStatus: (orderId: string, newStatus: OrderStatus, courierData?: { courier: string; trackingNumber: string; estimatedDelivery: string }, note?: string) => { success: boolean; message?: string };
+  resetAllOrders: () => Promise<void>;
   updateVariantStock: (productId: string, variantId: string, newStock: number, sizeStock?: Record<string, number>, targetSize?: string) => void;
   saveCoupon: (coupon: Coupon) => void;
   deleteCoupon: (code: string) => void;
@@ -490,8 +494,21 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const [wishlistIds, setWishlistIds] = useState<string[]>(['prod_sneaker_02', 'prod_dress_03']);
 
   const [orders, setOrders] = useState<Order[]>(() => {
-    const saved = localStorage.getItem('zoodi_orders');
-    return saved ? JSON.parse(saved) : INITIAL_ORDERS;
+    try {
+      const isClean = localStorage.getItem('zoodi_orders_clean_reset_v2');
+      if (!isClean) {
+        localStorage.setItem('zoodi_orders_clean_reset_v2', 'true');
+        localStorage.removeItem('zoodi_orders');
+        return [];
+      }
+      const saved = localStorage.getItem('zoodi_orders');
+      if (!saved) return [];
+      const parsed = JSON.parse(saved);
+      if (!Array.isArray(parsed)) return [];
+      return parsed.filter((o: any) => o && o.id && !LEGACY_DEMO_ORDER_IDS.has(o.id));
+    } catch {
+      return [];
+    }
   });
 
   const [reviews, setReviews] = useState<Review[]>(() => {
@@ -606,6 +623,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   // Cloud Firestore Real-time Synchronization across all devices & browsers
   useEffect(() => {
     seedFirestoreIfEmpty().catch(console.warn);
+    firestoreClearDemoOrders().catch(() => {});
 
     const unsubProducts = subscribeToProducts((cloudProducts) => {
       if (cloudProducts) {
@@ -2285,6 +2303,18 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return { success: true };
   };
 
+  const resetAllOrders = async (): Promise<void> => {
+    setOrders([]);
+    try {
+      localStorage.removeItem('zoodi_orders');
+      localStorage.setItem('zoodi_orders_clean_reset_v2', 'true');
+    } catch {
+      // ignore
+    }
+    await firestoreResetAllOrders();
+    recordAudit('RESET_ORDERS_REVENUE', 'Reset sales revenue and cleared order transactions to ₹0');
+  };
+
   const updateVariantStock = (
     productId: string,
     variantId: string,
@@ -2541,6 +2571,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         duplicateHomepageSection,
         saveSingleHomepageSection,
         updateOrderStatus,
+        resetAllOrders,
         updateVariantStock,
         saveCoupon,
         deleteCoupon,

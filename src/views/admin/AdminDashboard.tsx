@@ -30,6 +30,7 @@ import {
   Check,
   AlertTriangle,
   RefreshCw,
+  RotateCcw,
   X,
   Store,
   ExternalLink,
@@ -68,6 +69,7 @@ export const AdminDashboard: React.FC = () => {
     updateHomepageSections,
     orders,
     updateOrderStatus,
+    resetAllOrders,
     updateVariantStock,
     coupons,
     saveCoupon,
@@ -279,6 +281,34 @@ export const AdminDashboard: React.FC = () => {
     0
   );
 
+  // Count of products in Catalog & Product Variants
+  const catalogProductsCount = products.length;
+  const totalVariantsCount = products.reduce(
+    (count, p) => count + (p.variants?.length || 0),
+    0
+  );
+
+  const [isResettingOrders, setIsResettingOrders] = useState(false);
+
+  const handleResetRevenueAndOrders = async () => {
+    if (
+      !window.confirm(
+        'Reset Sales Revenue and Avg. Order Value (AOV) to ₹0 and clear test transactions? This will clean up all demo orders.'
+      )
+    ) {
+      return;
+    }
+    try {
+      setIsResettingOrders(true);
+      await resetAllOrders();
+      showNotice('Sales Revenue & AOV successfully reset to ₹0', 'success');
+    } catch {
+      showNotice('Failed to reset orders and revenue', 'error');
+    } finally {
+      setIsResettingOrders(false);
+    }
+  };
+
   // Available Admin Modules
   const modules: Array<{ id: AdminModuleTab; label: string; icon: React.ReactNode }> = [
     { id: 'dashboard', label: 'Dashboard', icon: <LayoutDashboard className="w-4 h-4" /> },
@@ -462,11 +492,24 @@ export const AdminDashboard: React.FC = () => {
           {/* MODULE 1: DASHBOARD METRICS */}
           {adminModule === 'dashboard' && (
             <div className="space-y-6">
-              <div>
-                <h1 className="text-xl font-extrabold text-[#192E4D]">Executive Operations Overview</h1>
-                <p className="text-xs text-[#697586] mt-0.5">
-                  Live backend transaction and catalog metrics calculated from real records.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-xl font-extrabold text-[#192E4D]">Executive Operations Overview</h1>
+                  <p className="text-xs text-[#697586] mt-0.5">
+                    Live backend transaction and catalog metrics calculated from real records.
+                  </p>
+                </div>
+
+                <button
+                  type="button"
+                  onClick={handleResetRevenueAndOrders}
+                  disabled={isResettingOrders}
+                  className="self-start sm:self-auto px-3.5 py-2 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  title="Reset Sales Revenue, AOV, and clear test orders to ₹0"
+                >
+                  <RotateCcw className={`w-3.5 h-3.5 ${isResettingOrders ? 'animate-spin' : ''}`} />
+                  <span>{isResettingOrders ? 'Resetting...' : 'Reset Sales & Revenue (₹0)'}</span>
+                </button>
               </div>
 
               {/* Metrics Grid */}
@@ -483,15 +526,24 @@ export const AdminDashboard: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs">
-                  <span className="text-[11px] font-bold uppercase tracking-wider text-[#697586] block">
-                    Active Orders
-                  </span>
+                <div
+                  onClick={() => setAdminModule('products')}
+                  className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs cursor-pointer hover:border-[#08A9A2] transition-colors group"
+                  title="Click to view Catalog & Product Variants"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="text-[11px] font-bold uppercase tracking-wider text-[#697586] block group-hover:text-[#08A9A2] transition-colors">
+                      Active Orders
+                    </span>
+                    <span className="text-[9px] font-bold text-[#08A9A2] bg-[#08A9A2]/10 px-1.5 py-0.5 rounded">
+                      Catalog
+                    </span>
+                  </div>
                   <span className="text-2xl font-black text-[#08A9A2] mt-1 block">
-                    {totalOrdersCount}
+                    {catalogProductsCount}
                   </span>
                   <span className="text-[10px] text-[#08A9A2] font-bold bg-[#08A9A2]/10 px-2 py-0.5 rounded-md inline-block mt-2">
-                    {pendingOrdersCount} Awaiting Fulfillment
+                    {catalogProductsCount} in Catalog &amp; Variants
                   </span>
                 </div>
 
@@ -507,7 +559,11 @@ export const AdminDashboard: React.FC = () => {
                   </span>
                 </div>
 
-                <div className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs">
+                <div
+                  onClick={() => setAdminModule('inventory')}
+                  className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs cursor-pointer hover:border-[#F20D58] transition-colors"
+                  title="Click to view Variant Inventory"
+                >
                   <span className="text-[11px] font-bold uppercase tracking-wider text-[#697586] block">
                     Low Stock Warnings
                   </span>
@@ -810,15 +866,40 @@ export const AdminDashboard: React.FC = () => {
           {/* MODULE 5: ORDERS & FULFILLMENT */}
           {adminModule === 'orders' && (
             <div className="space-y-4">
-              <div>
-                <h1 className="text-lg font-extrabold text-[#192E4D]">Customer Orders & Logistics</h1>
-                <p className="text-xs text-[#697586]">
-                  Advance order fulfillment lifecycle and assign courier tracking details.
-                </p>
+              <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-3">
+                <div>
+                  <h1 className="text-lg font-extrabold text-[#192E4D]">Customer Orders & Logistics</h1>
+                  <p className="text-xs text-[#697586]">
+                    Advance order fulfillment lifecycle and assign courier tracking details.
+                  </p>
+                </div>
+
+                {orders.length > 0 && (
+                  <button
+                    type="button"
+                    onClick={handleResetRevenueAndOrders}
+                    disabled={isResettingOrders}
+                    className="self-start sm:self-auto px-3.5 py-1.5 rounded-xl border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-700 text-xs font-bold flex items-center gap-1.5 transition-colors cursor-pointer disabled:opacity-50"
+                  >
+                    <RotateCcw className={`w-3.5 h-3.5 ${isResettingOrders ? 'animate-spin' : ''}`} />
+                    <span>Clear Orders &amp; Reset Revenue (₹0)</span>
+                  </button>
+                )}
               </div>
 
-              <div className="space-y-3">
-                {orders.map((ord) => (
+              {orders.length === 0 ? (
+                <div className="p-8 text-center bg-white rounded-2xl border border-dashed border-[#E6EAF0] text-[#697586] space-y-2">
+                  <div className="w-12 h-12 rounded-full bg-teal-50 text-[#08A9A2] flex items-center justify-center mx-auto">
+                    <ShoppingBag className="w-6 h-6" />
+                  </div>
+                  <h3 className="font-extrabold text-sm text-[#192E4D]">No Active Orders (Reset to ₹0)</h3>
+                  <p className="text-xs text-[#697586] max-w-sm mx-auto">
+                    Sales Revenue and AOV are reset. Live customer orders placed via checkout will appear here in real time.
+                  </p>
+                </div>
+              ) : (
+                <div className="space-y-3">
+                  {orders.map((ord) => (
                   <div key={ord.id} className="p-4 rounded-2xl bg-white border border-[#E6EAF0] space-y-3">
                     <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-2 pb-2.5 border-b border-[#F0F4F8]">
                       <div>
@@ -901,7 +982,8 @@ export const AdminDashboard: React.FC = () => {
                     </div>
                   </div>
                 ))}
-              </div>
+                </div>
+              )}
             </div>
           )}
 
