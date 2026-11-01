@@ -1,7 +1,11 @@
 import React, { useState, useEffect } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ProductCard } from '../../components/ProductCard';
-import { isProductVisibleToCustomer, getEffectiveProductPricing } from '../../services/firestoreSync';
+import {
+  isProductVisibleToCustomer,
+  getEffectiveProductPricing,
+  reconstructAndNormalizeImageList,
+} from '../../services/firestoreSync';
 import {
   ChevronLeft,
   Heart,
@@ -262,9 +266,7 @@ export const ProductDetailScreen: React.FC = () => {
     ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
     ...((product.variants || []).flatMap((v) => v.images || [])),
   ];
-  const galleryImages = Array.from(
-    new Set(rawGallery.map((s) => (typeof s === 'string' ? s.trim() : '')).filter(Boolean))
-  );
+  const galleryImages = reconstructAndNormalizeImageList(rawGallery);
   if (galleryImages.length === 0) {
     galleryImages.push('https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80');
   }

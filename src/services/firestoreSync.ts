@@ -124,6 +124,133 @@ export function sanitizeForFirestore<T>(value: T): T {
 }
 
 /**
+ * Normalizes a single image URL:
+ * - Strips surrounding quotes, angle brackets, and trailing commas/semicolons
+ * - Extracts the direct image URL if the user pasted a Google Images search link (`imgres?imgurl=...`)
+ * - Converts Google Drive share links (`drive.google.com/file/d/...` or `open?id=...`) to direct image URLs
+ * - Converts Dropbox `?dl=0` links to direct `?raw=1` links
+ */
+export function normalizeSingleImageUrl(rawInput: string): string {
+  if (!rawInput || typeof rawInput !== 'string') return '';
+  let url = rawInput.trim();
+
+  // If user pasted an HTML <img src="..."> snippet, extract src
+  const imgTagMatch = url.match(/<img[^>]+src=["']([^"']+)["']/i);
+  if (imgTagMatch?.[1]) {
+    url = imgTagMatch[1].trim();
+  }
+
+  // Strip surrounding quotes or brackets and trailing commas/semicolons
+  url = url.replace(/^["'<(\s]+|["'>)\s,;]+$/g, '').trim();
+  if (!url) return '';
+
+  // Keep data:image/* and blob: and local / paths intact
+  if (url.startsWith('data:image/') || url.startsWith('blob:') || url.startsWith('/')) {
+    return url;
+  }
+
+  // Handle protocol-relative URLs
+  if (url.startsWith('//')) {
+    url = `https:${url}`;
+  }
+
+  try {
+    const parsed = new URL(url);
+
+    // 1. Google Images search result link: extract ?imgurl=
+    if (
+      (parsed.hostname.includes('google.') && parsed.pathname.includes('/imgres')) ||
+      parsed.searchParams.has('imgurl')
+    ) {
+      const directImgUrl = parsed.searchParams.get('imgurl');
+      if (directImgUrl && directImgUrl.startsWith('http')) {
+        return directImgUrl.trim();
+      }
+    }
+
+    // 2. Google Drive link: convert to direct lh3.googleusercontent.com/d/FILE_ID
+    if (parsed.hostname.includes('drive.google.com')) {
+      const fileMatch = parsed.pathname.match(/\/file\/d\/([^/]+)/);
+      const idParam = parsed.searchParams.get('id');
+      const fileId = fileMatch?.[1] || idParam;
+      if (fileId) {
+        return `https://lh3.googleusercontent.com/d/${fileId}`;
+      }
+    }
+
+    // 3. Dropbox share link: convert dl=0 to raw=1
+    if (parsed.hostname.includes('dropbox.com')) {
+      parsed.searchParams.delete('dl');
+      parsed.searchParams.set('raw', '1');
+      return parsed.toString();
+    }
+  } catch {
+    // If URL constructor fails, return cleaned string if it looks like a URL
+  }
+
+  return url;
+}
+
+/**
+ * Reconstructs any URLs that were previously split at internal commas (e.g. Cloudinary/Myntra
+ * transformation params like `w_500,h_500,c_fill` or `data:image/jpeg;base64,...`) and normalizes
+ * all valid image URLs while preserving order and uniqueness.
+ */
+export function reconstructAndNormalizeImageList(rawItems: any[]): string[] {
+  if (!Array.isArray(rawItems)) return [];
+
+  const rejoined: string[] = [];
+  for (const item of rawItems) {
+    if (typeof item !== 'string') continue;
+    const trimmed = item.trim();
+    if (!trimmed) continue;
+
+    const isStandaloneUrl =
+      /^https?:\/\//i.test(trimmed) ||
+      /^data:image\//i.test(trimmed) ||
+      /^blob:/i.test(trimmed) ||
+      trimmed.startsWith('/') ||
+      trimmed.startsWith('//');
+
+    if (isStandaloneUrl) {
+      rejoined.push(trimmed);
+    } else if (rejoined.length > 0) {
+      // This fragment was split at a comma inside the previous URL (e.g. `h_1440,q_90,w_1080/...`)
+      rejoined[rejoined.length - 1] = `${rejoined[rejoined.length - 1]},${trimmed}`;
+    }
+  }
+
+  const uniqueUrls: string[] = [];
+  const seen = new Set<string>();
+  for (const rawUrl of rejoined) {
+    const normalized = normalizeSingleImageUrl(rawUrl);
+    if (normalized && !seen.has(normalized)) {
+      seen.add(normalized);
+      uniqueUrls.push(normalized);
+    }
+  }
+  return uniqueUrls;
+}
+
+/**
+ * Extracts one or more image URLs from a raw text input (single input or bulk textarea)
+ * WITHOUT splitting on commas inside a URL's path or query string.
+ */
+export function extractAndNormalizeImageUrls(rawText: string): string[] {
+  if (!rawText || typeof rawText !== 'string') return [];
+  const trimmed = rawText.trim();
+  if (!trimmed) return [];
+
+  // Split only on newlines OR where whitespace/comma/semicolon is immediately followed by a new URL protocol
+  const parts = trimmed
+    .split(/(?:\r?\n)+|(?:[,;\s]+)(?=(?:https?:\/\/|data:image\/|\/assets\/))/i)
+    .map((p) => p.trim())
+    .filter(Boolean);
+
+  return reconstructAndNormalizeImageList(parts);
+}
+
+/**
  * Normalizes a raw Firestore document into a clean, consistent Product record
  * where Colour + Size combination inventory is the single source of truth
  * and aggregate variant/product stock totals are derived automatically.
@@ -143,34 +270,30 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
       ? rawSalePrice
       : undefined;
 
-  // 1. Gather all unique images into one common product image gallery
-  const collectedImageSet = new Set<string>();
+  // 1. Gather all unique images into one common product image gallery (reconstructing any comma-split URLs)
+  const rawImageCandidates: any[] = [];
   if (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== '') {
-    collectedImageSet.add(raw.primaryImage.trim());
+    rawImageCandidates.push(raw.primaryImage.trim());
   }
   if (Array.isArray(raw?.images)) {
-    raw.images.forEach((img: any) => {
-      if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
-    });
+    rawImageCandidates.push(...raw.images);
   }
   if (Array.isArray(raw?.additionalImages)) {
-    raw.additionalImages.forEach((img: any) => {
-      if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
-    });
+    rawImageCandidates.push(...raw.additionalImages);
   }
   if (Array.isArray(raw?.variants)) {
     raw.variants.forEach((v: any) => {
       if (Array.isArray(v?.images)) {
-        v.images.forEach((img: any) => {
-          if (typeof img === 'string' && img.trim() !== '') collectedImageSet.add(img.trim());
-        });
+        rawImageCandidates.push(...v.images);
       }
     });
   }
-  const allCommonImages: string[] = Array.from(collectedImageSet);
+  const allCommonImages: string[] = reconstructAndNormalizeImageList(rawImageCandidates);
+  const normalizedPrimaryCandidate =
+    typeof raw?.primaryImage === 'string' ? normalizeSingleImageUrl(raw.primaryImage) : '';
   const primaryImage =
-    (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== ''
-      ? raw.primaryImage.trim()
+    (normalizedPrimaryCandidate && allCommonImages.includes(normalizedPrimaryCandidate)
+      ? normalizedPrimaryCandidate
       : allCommonImages[0]) || '';
   if (primaryImage && !allCommonImages.includes(primaryImage)) {
     allCommonImages.unshift(primaryImage);

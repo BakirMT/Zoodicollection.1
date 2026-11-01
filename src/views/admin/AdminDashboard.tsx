@@ -668,7 +668,11 @@ export const AdminDashboard: React.FC = () => {
                     {products.map((p) => {
                       const variants = p.variants || [];
                       const totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
-                      const primaryImg = variants[0]?.images?.[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
+                      const primaryImg =
+                        p.primaryImage ||
+                        p.images?.[0] ||
+                        variants[0]?.images?.[0] ||
+                        'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
                       return (
                         <div
                           key={p.id}
@@ -678,6 +682,7 @@ export const AdminDashboard: React.FC = () => {
                             <img
                               src={primaryImg}
                               alt={p.name}
+                              referrerPolicy="no-referrer"
                               className="w-16 h-16 object-cover rounded-xl border border-slate-100 shrink-0"
                             />
                             <div className="flex-1 min-w-0">
@@ -760,7 +765,11 @@ export const AdminDashboard: React.FC = () => {
                           {products.map((p) => {
                             const variants = p.variants || [];
                             const totalStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
-                            const primaryImg = variants[0]?.images?.[0] || 'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
+                            const primaryImg =
+                              p.primaryImage ||
+                              p.images?.[0] ||
+                              variants[0]?.images?.[0] ||
+                              'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
                             return (
                               <tr key={p.id} className="hover:bg-[#FBFDFE]">
                                 <td className="p-3 font-bold text-[#192E4D]">
@@ -768,6 +777,7 @@ export const AdminDashboard: React.FC = () => {
                                     <img
                                       src={primaryImg}
                                       alt=""
+                                      referrerPolicy="no-referrer"
                                       className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
                                     />
                                     <div>

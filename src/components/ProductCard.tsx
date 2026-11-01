@@ -18,6 +18,8 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
   const isWishlisted = wishlistIds.includes(product.id);
   const primaryVariant = product.variants?.[0];
   const primaryImage =
+    product.primaryImage ||
+    product.images?.[0] ||
     primaryVariant?.images?.[0] ||
     product.additionalImages?.[0] ||
     'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';

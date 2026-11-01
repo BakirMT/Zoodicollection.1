@@ -10,6 +10,11 @@ import {
 } from '../../types';
 import { getCategoryTemplate, getDefaultSizesForVariantType } from '../../data/categoryTemplates';
 import { formatCombinationSku } from '../../lib/commerceLogic';
+import {
+  extractAndNormalizeImageUrls,
+  normalizeSingleImageUrl,
+  reconstructAndNormalizeImageList,
+} from '../../services/firestoreSync';
 import { CategoryLevel, CategoryModal } from './CategoryModal';
 import {
   X,
@@ -54,7 +59,7 @@ const SAMPLE_IMAGE_SETS = [
   {
     label: "Men's Apparel",
     images: [
-      'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?auto=format&fit=crop&w=800&q=80',
+      'https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&w=800&q=80',
       'https://images.unsplash.com/photo-1618354691373-d851c5c3a990?auto=format&fit=crop&w=800&q=80',
     ],
@@ -127,6 +132,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [galleryImageInput, setGalleryImageInput] = useState('');
   const [bulkImageInput, setBulkImageInput] = useState('');
   const [showBulkInput, setShowBulkInput] = useState(false);
+  const [failedImageUrls, setFailedImageUrls] = useState<Record<string, boolean>>({});
   const [pSizeChartImage, setPSizeChartImage] = useState('');
   const [pCareImage, setPCareImage] = useState('');
 
@@ -217,6 +223,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setGalleryImageInput('');
     setBulkImageInput('');
     setShowBulkInput(false);
+    setFailedImageUrls({});
     setPSizeChartImage('');
     setPCareImage('');
 
@@ -297,27 +304,30 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       const firstVar = editingProduct.variants?.[0];
       setPSku(firstVar?.sku || '');
 
-      // 1. Gather all existing images into common product image gallery
-      const loadedImageSet = new Set<string>();
+      // 1. Gather all existing images into common product image gallery (reconstructing any comma-split fragments)
+      const rawCandidateImages: string[] = [];
       if (editingProduct.primaryImage && editingProduct.primaryImage.trim()) {
-        loadedImageSet.add(editingProduct.primaryImage.trim());
+        rawCandidateImages.push(editingProduct.primaryImage.trim());
       }
-      (editingProduct.images || []).forEach((u) => {
-        if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
-      });
-      (editingProduct.additionalImages || []).forEach((u) => {
-        if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
-      });
+      if (Array.isArray(editingProduct.images)) {
+        rawCandidateImages.push(...editingProduct.images);
+      }
+      if (Array.isArray(editingProduct.additionalImages)) {
+        rawCandidateImages.push(...editingProduct.additionalImages);
+      }
       (editingProduct.variants || []).forEach((v) => {
-        (v.images || []).forEach((u) => {
-          if (typeof u === 'string' && u.trim()) loadedImageSet.add(u.trim());
-        });
+        if (Array.isArray(v.images)) {
+          rawCandidateImages.push(...v.images);
+        }
       });
-      const allLoadedImages = Array.from(loadedImageSet);
+      const allLoadedImages = reconstructAndNormalizeImageList(rawCandidateImages);
+      const normalizedPrimary = editingProduct.primaryImage
+        ? normalizeSingleImageUrl(editingProduct.primaryImage)
+        : '';
       const activePrimary =
-        (editingProduct.primaryImage && editingProduct.primaryImage.trim()) ||
-        allLoadedImages[0] ||
-        '';
+        (normalizedPrimary && allLoadedImages.includes(normalizedPrimary)
+          ? normalizedPrimary
+          : allLoadedImages[0]) || '';
       if (activePrimary && !allLoadedImages.includes(activePrimary)) {
         allLoadedImages.unshift(activePrimary);
       }
@@ -326,6 +336,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setGalleryImageInput('');
       setBulkImageInput('');
       setShowBulkInput(false);
+      setFailedImageUrls({});
       setPSizeChartImage(editingProduct.sizeChartImage || '');
       setPCareImage(editingProduct.careImage || '');
 
@@ -722,37 +733,93 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   // SECTION 3: COMMON IMAGE GALLERY HELPERS
   // ==========================================
   const handleAddGalleryImage = (urlToAdd?: string) => {
-    const url = (urlToAdd || galleryImageInput).trim();
-    if (!url) return;
-    if (!pGalleryImages.includes(url)) {
-      const updated = [...pGalleryImages, url];
-      setPGalleryImages(updated);
-      if (!pPrimaryImage.trim()) {
-        setPPrimaryImage(url);
+    const raw = (urlToAdd ?? galleryImageInput).trim();
+    if (!raw) return;
+    const extracted = extractAndNormalizeImageUrls(raw);
+    if (extracted.length === 0) return;
+
+    const updated = [...pGalleryImages];
+    extracted.forEach((u) => {
+      if (!updated.includes(u)) {
+        updated.push(u);
       }
+    });
+    setPGalleryImages(updated);
+    if (!pPrimaryImage.trim() && updated.length > 0) {
+      setPPrimaryImage(updated[0]);
     }
-    setGalleryImageInput('');
+    setFailedImageUrls((prev) => {
+      const next = { ...prev };
+      extracted.forEach((u) => delete next[u]);
+      return next;
+    });
+    if (urlToAdd === undefined) {
+      setGalleryImageInput('');
+    }
     setValidationError(null);
   };
 
   const handleBulkAddImages = () => {
     if (!bulkImageInput.trim()) return;
-    const urls = bulkImageInput
-      .split(/[\n,]+/)
-      .map((u) => u.trim())
-      .filter((u) => u.length > 5);
+    const extracted = extractAndNormalizeImageUrls(bulkImageInput);
+    if (extracted.length === 0) return;
 
-    if (urls.length === 0) return;
-
-    const currentSet = new Set(pGalleryImages);
-    urls.forEach((u) => currentSet.add(u));
-    const updated = Array.from(currentSet);
+    const updated = [...pGalleryImages];
+    extracted.forEach((u) => {
+      if (!updated.includes(u)) {
+        updated.push(u);
+      }
+    });
     setPGalleryImages(updated);
     if (!pPrimaryImage.trim() && updated.length > 0) {
       setPPrimaryImage(updated[0]);
     }
+    setFailedImageUrls((prev) => {
+      const next = { ...prev };
+      extracted.forEach((u) => delete next[u]);
+      return next;
+    });
     setBulkImageInput('');
     setShowBulkInput(false);
+    setValidationError(null);
+  };
+
+  const handleUpdateGalleryImageUrl = (idx: number, newRawUrl: string) => {
+    const normalized = normalizeSingleImageUrl(newRawUrl);
+    const oldUrl = pGalleryImages[idx];
+    const nextList = [...pGalleryImages];
+    nextList[idx] = normalized;
+    setPGalleryImages(nextList);
+    if (pPrimaryImage === oldUrl) {
+      setPPrimaryImage(normalized);
+    }
+    setFailedImageUrls((prev) => {
+      const next = { ...prev };
+      delete next[oldUrl];
+      delete next[normalized];
+      return next;
+    });
+  };
+
+  const handleFileUploadToGallery = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = e.target.files;
+    if (!files || files.length === 0) return;
+    Array.from(files).forEach((file) => {
+      const reader = new FileReader();
+      reader.onload = () => {
+        const result = typeof reader.result === 'string' ? reader.result : '';
+        if (result) {
+          setPGalleryImages((prev) => {
+            if (prev.includes(result)) return prev;
+            const next = [...prev, result];
+            setPPrimaryImage((currPrimary) => (currPrimary.trim() ? currPrimary : result));
+            return next;
+          });
+        }
+      };
+      reader.readAsDataURL(file);
+    });
+    e.target.value = '';
     setValidationError(null);
   };
 
@@ -1053,13 +1120,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const finalSizes = variantType === 'none' ? [] : [...pAvailableSizes];
     const sizeKeysForInventory = finalSizes.length > 0 ? finalSizes : ['Single Unit'];
 
-    // Common Product Image Gallery
-    const finalGalleryImages = [...pGalleryImages];
-    if (pPrimaryImage.trim() && !finalGalleryImages.includes(pPrimaryImage.trim())) {
-      finalGalleryImages.unshift(pPrimaryImage.trim());
-    } else if (pPrimaryImage.trim() && finalGalleryImages.includes(pPrimaryImage.trim())) {
-      const without = finalGalleryImages.filter((img) => img !== pPrimaryImage.trim());
-      finalGalleryImages.splice(0, finalGalleryImages.length, pPrimaryImage.trim(), ...without);
+    // Common Product Image Gallery (also include any pending un-submitted URLs in the inputs)
+    const pendingSingleUrls = galleryImageInput.trim()
+      ? extractAndNormalizeImageUrls(galleryImageInput)
+      : [];
+    const pendingBulkUrls = bulkImageInput.trim()
+      ? extractAndNormalizeImageUrls(bulkImageInput)
+      : [];
+    const finalGalleryImages = reconstructAndNormalizeImageList([
+      ...pGalleryImages,
+      ...pendingSingleUrls,
+      ...pendingBulkUrls,
+    ]);
+    const normalizedPrimary = normalizeSingleImageUrl(pPrimaryImage.trim());
+    if (normalizedPrimary && !finalGalleryImages.includes(normalizedPrimary)) {
+      finalGalleryImages.unshift(normalizedPrimary);
+    } else if (normalizedPrimary && finalGalleryImages.includes(normalizedPrimary)) {
+      const without = finalGalleryImages.filter((img) => img !== normalizedPrimary);
+      finalGalleryImages.splice(0, finalGalleryImages.length, normalizedPrimary, ...without);
     }
 
     if (finalGalleryImages.length === 0) {
@@ -1669,14 +1747,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
               </div>
 
-              {/* Add Single Image URL */}
+              {/* Add Single or Multiple Image URLs */}
               <div className="space-y-2">
                 <label className="font-bold text-[#192E4D] text-xs block">
-                  Add Product Image URL
+                  Add Product Image URL(s)
                 </label>
-                <div className="flex gap-2">
+                <div className="flex flex-wrap sm:flex-nowrap gap-2">
                   <input
-                    type="url"
+                    type="text"
                     value={galleryImageInput}
                     onChange={(e) => setGalleryImageInput(e.target.value)}
                     onKeyDown={(e) => {
@@ -1685,8 +1763,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                         handleAddGalleryImage();
                       }
                     }}
-                    placeholder="https://images.unsplash.com/... product angle photo"
-                    className="flex-1 h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
+                    placeholder="Paste image URL (or multiple URLs separated by spaces/lines)..."
+                    className="flex-1 min-w-[200px] h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
                   />
                   <button
                     type="button"
@@ -1703,6 +1781,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   >
                     {showBulkInput ? 'Close Bulk' : 'Bulk URLs'}
                   </button>
+                  <label className="px-3 h-10 bg-white border border-[#E6EAF0] hover:bg-slate-50 text-[#192E4D] rounded-xl text-xs font-bold cursor-pointer transition-colors shrink-0 flex items-center gap-1">
+                    <ImageIcon className="w-3.5 h-3.5 text-[#08A9A2]" />
+                    <span>Upload Photos</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleFileUploadToGallery}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
               </div>
 
@@ -1711,14 +1800,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 animate-in fade-in-50">
                   <div className="flex items-center justify-between">
                     <label className="text-xs font-extrabold text-[#192E4D]">
-                      Paste Multiple Image URLs (one per line or comma-separated)
+                      Paste Multiple Image URLs (one URL per line — URLs with commas inside them are supported)
                     </label>
                   </div>
                   <textarea
-                    rows={3}
+                    rows={4}
                     value={bulkImageInput}
                     onChange={(e) => setBulkImageInput(e.target.value)}
-                    placeholder="https://images.unsplash.com/photo-1...&#10;https://images.unsplash.com/photo-2...&#10;https://images.unsplash.com/photo-3..."
+                    placeholder="https://example.com/product-front.jpg&#10;https://example.com/product-back.jpg&#10;https://example.com/product-side.jpg"
                     className="w-full p-2.5 border border-[#E6EAF0] rounded-xl text-xs font-mono bg-white"
                   />
                   <div className="flex justify-end gap-2">
@@ -1758,32 +1847,54 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       No common images added to gallery yet.
                     </p>
                     <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-                      Add image URLs above or click one of the quick sample sets to populate the product gallery.
+                      Add image URLs above, upload photos, or click one of the quick sample sets to populate the product gallery.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
                     {pGalleryImages.map((img, idx) => {
                       const isPrimary = pPrimaryImage === img;
+                      const hasLoadFailed = Boolean(failedImageUrls[img]);
                       return (
                         <div
-                          key={img + idx}
+                          key={`gallery_slot_${idx}`}
                           className={`relative group rounded-2xl border p-2 bg-white flex flex-col justify-between transition-all ${
                             isPrimary
                               ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/30 shadow-sm'
                               : 'border-slate-200 hover:border-slate-400'
                           }`}
                         >
-                          <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100">
-                            <img
-                              src={img}
-                              alt={`Product view ${idx + 1}`}
-                              className="w-full h-full object-cover"
-                              onError={(e) => {
-                                (e.currentTarget as HTMLImageElement).src =
-                                  'https://images.unsplash.com/photo-1521572267360-ee0c2909d518?w=500&auto=format&fit=crop&q=80';
-                              }}
-                            />
+                          <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center">
+                            {!hasLoadFailed ? (
+                              <img
+                                src={img}
+                                alt={`Product view ${idx + 1}`}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                                onLoad={() => {
+                                  if (failedImageUrls[img]) {
+                                    setFailedImageUrls((prev) => {
+                                      const next = { ...prev };
+                                      delete next[img];
+                                      return next;
+                                    });
+                                  }
+                                }}
+                                onError={() => {
+                                  setFailedImageUrls((prev) => ({ ...prev, [img]: true }));
+                                }}
+                              />
+                            ) : (
+                              <div className="p-3 text-center space-y-1.5">
+                                <AlertCircle className="w-6 h-6 text-amber-500 mx-auto" />
+                                <p className="text-[10px] font-bold text-slate-700 leading-tight">
+                                  Preview blocked or invalid direct image link
+                                </p>
+                                <p className="text-[9px] text-slate-400 break-all line-clamp-2 font-mono">
+                                  {img}
+                                </p>
+                              </div>
+                            )}
                             {isPrimary && (
                               <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm">
                                 <Star className="w-3 h-3 fill-current" />
@@ -1793,6 +1904,18 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                             <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-mono">
                               #{idx + 1}
                             </div>
+                          </div>
+
+                          {/* Editable Individual Image URL Input so each card shows its exact URL */}
+                          <div className="pt-1.5">
+                            <input
+                              type="text"
+                              value={img}
+                              onChange={(e) => handleUpdateGalleryImageUrl(idx, e.target.value)}
+                              title={img}
+                              placeholder={`Image #${idx + 1} URL`}
+                              className="w-full px-2 py-1 text-[10px] font-mono bg-slate-50 border border-slate-200 rounded-lg text-slate-600 focus:bg-white focus:border-[#08A9A2] focus:outline-hidden truncate"
+                            />
                           </div>
 
                           <div className="pt-2 flex items-center justify-between gap-1">
@@ -3009,6 +3132,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     <img
                       src={pPrimaryImage}
                       alt="Preview"
+                      referrerPolicy="no-referrer"
                       className="w-20 h-24 object-cover rounded-xl border bg-white"
                     />
                   ) : (
