@@ -767,9 +767,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         );
         const clampedQty = Math.min(item.quantity, stockCheck.remaining);
         const latestImg =
+          liveProd.primaryImage ||
+          liveProd.images?.[0] ||
           liveVariant.images?.[0] ||
           item.image ||
-          'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
+          '';
         const combinationSku =
           liveVariant.sizeSku?.[normalizedSize || 'Single Unit'] || liveVariant.sku;
 
@@ -1235,8 +1237,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           colorName: liveVariant.colorName,
           colorCode: liveVariant.colorCode,
           image:
-            liveVariant.images[0] ||
-            'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80',
+            liveProduct.primaryImage ||
+            liveProduct.images?.[0] ||
+            liveVariant.images?.[0] ||
+            '',
           size,
           sku: combinationSku,
           price: effectivePrice,

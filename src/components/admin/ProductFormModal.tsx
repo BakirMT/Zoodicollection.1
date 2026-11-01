@@ -11,9 +11,10 @@ import {
 import { getCategoryTemplate, getDefaultSizesForVariantType } from '../../data/categoryTemplates';
 import { formatCombinationSku } from '../../lib/commerceLogic';
 import {
-  extractAndNormalizeImageUrls,
+  isImageShareViewerUrl,
   normalizeSingleImageUrl,
   reconstructAndNormalizeImageList,
+  resolveDirectImageUrl,
 } from '../../services/firestoreSync';
 import { CategoryLevel, CategoryModal } from './CategoryModal';
 import {
@@ -31,8 +32,9 @@ import {
   Star,
   ChevronLeft,
   ChevronRight,
+  ArrowUp,
+  ArrowDown,
   Palette,
-  Upload,
   Image as ImageIcon,
 } from 'lucide-react';
 
@@ -53,33 +55,6 @@ const PRESET_COLORS = [
   { name: 'Teal Green', hex: '#0D9488' },
   { name: 'Sand Beige', hex: '#D4B996' },
   { name: 'Charcoal Grey', hex: '#4B5563' },
-];
-
-const SAMPLE_IMAGE_SETS = [
-  {
-    label: "Men's Apparel",
-    images: [
-      'https://images.unsplash.com/photo-1576566588028-4147f3842f27?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1583743814966-8936f5b7be1a?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1618354691373-d851c5c3a990?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    label: 'Jackets & Outerwear',
-    images: [
-      'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1544441893-675973e31985?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1548883354-7622d03aca27?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
-  {
-    label: 'Footwear & Sneakers',
-    images: [
-      'https://images.unsplash.com/photo-1549298916-b41d501d3772?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1595950653106-6c9ebd614d3a?auto=format&fit=crop&w=800&q=80',
-      'https://images.unsplash.com/photo-1584735935682-2f2b69dff9d2?auto=format&fit=crop&w=800&q=80',
-    ],
-  },
 ];
 
 interface ProductFormModalProps {
@@ -126,12 +101,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [showQuickCategoryModal, setShowQuickCategoryModal] = useState(false);
   const [quickCategoryLevel, setQuickCategoryLevel] = useState<CategoryLevel>('sub');
 
-  // SECTION 3: COMMON PRODUCT IMAGES (Belongs to entire product common gallery, NOT to individual colors)
+  // SECTION 3: PRODUCT IMAGE GALLERY (Belongs to entire product, NOT to individual colors)
   const [pPrimaryImage, setPPrimaryImage] = useState('');
   const [pGalleryImages, setPGalleryImages] = useState<string[]>([]);
   const [galleryImageInput, setGalleryImageInput] = useState('');
-  const [bulkImageInput, setBulkImageInput] = useState('');
-  const [showBulkInput, setShowBulkInput] = useState(false);
+  const [galleryUrlError, setGalleryUrlError] = useState<string | null>(null);
+  const [isAddingImageUrl, setIsAddingImageUrl] = useState(false);
+  const [resolvingImageUrls, setResolvingImageUrls] = useState<Record<string, boolean>>({});
+  const [attemptedResolveUrls, setAttemptedResolveUrls] = useState<Record<string, boolean>>({});
   const [failedImageUrls, setFailedImageUrls] = useState<Record<string, boolean>>({});
   const [pSizeChartImage, setPSizeChartImage] = useState('');
   const [pCareImage, setPCareImage] = useState('');
@@ -217,12 +194,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setPSubCat('');
     setPSubSubCat('');
 
-    // Section 3: Blank common image gallery
+    // Section 3: Blank product image gallery
     setPPrimaryImage('');
     setPGalleryImages([]);
     setGalleryImageInput('');
-    setBulkImageInput('');
-    setShowBulkInput(false);
+    setGalleryUrlError(null);
+    setIsAddingImageUrl(false);
+    setResolvingImageUrls({});
+    setAttemptedResolveUrls({});
     setFailedImageUrls({});
     setPSizeChartImage('');
     setPCareImage('');
@@ -304,38 +283,43 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       const firstVar = editingProduct.variants?.[0];
       setPSku(firstVar?.sku || '');
 
-      // 1. Gather all existing images into common product image gallery (reconstructing any comma-split fragments)
-      const rawCandidateImages: string[] = [];
-      if (editingProduct.primaryImage && editingProduct.primaryImage.trim()) {
-        rawCandidateImages.push(editingProduct.primaryImage.trim());
-      }
-      if (Array.isArray(editingProduct.images)) {
-        rawCandidateImages.push(...editingProduct.images);
-      }
-      if (Array.isArray(editingProduct.additionalImages)) {
-        rawCandidateImages.push(...editingProduct.additionalImages);
-      }
-      (editingProduct.variants || []).forEach((v) => {
-        if (Array.isArray(v.images)) {
-          rawCandidateImages.push(...v.images);
+      // 1. Load existing product images in their exact saved order, placing the selected primary image first
+      let loadedBaseImages: string[] = [];
+      if (Array.isArray(editingProduct.images) && editingProduct.images.length > 0) {
+        loadedBaseImages = reconstructAndNormalizeImageList(editingProduct.images);
+      } else {
+        const legacyCandidates: string[] = [];
+        if (editingProduct.primaryImage && editingProduct.primaryImage.trim()) {
+          legacyCandidates.push(editingProduct.primaryImage.trim());
         }
-      });
-      const allLoadedImages = reconstructAndNormalizeImageList(rawCandidateImages);
+        if (Array.isArray(editingProduct.additionalImages)) {
+          legacyCandidates.push(...editingProduct.additionalImages);
+        }
+        (editingProduct.variants || []).forEach((v) => {
+          if (Array.isArray(v.images)) {
+            legacyCandidates.push(...v.images);
+          }
+        });
+        loadedBaseImages = reconstructAndNormalizeImageList(legacyCandidates);
+      }
       const normalizedPrimary = editingProduct.primaryImage
         ? normalizeSingleImageUrl(editingProduct.primaryImage)
         : '';
       const activePrimary =
-        (normalizedPrimary && allLoadedImages.includes(normalizedPrimary)
+        (normalizedPrimary && loadedBaseImages.includes(normalizedPrimary)
           ? normalizedPrimary
-          : allLoadedImages[0]) || '';
-      if (activePrimary && !allLoadedImages.includes(activePrimary)) {
-        allLoadedImages.unshift(activePrimary);
-      }
+          : normalizedPrimary || loadedBaseImages[0]) || '';
+      const allLoadedImages = activePrimary
+        ? [activePrimary, ...loadedBaseImages.filter((img) => img !== activePrimary)]
+        : loadedBaseImages;
+
       setPPrimaryImage(activePrimary);
       setPGalleryImages(allLoadedImages);
       setGalleryImageInput('');
-      setBulkImageInput('');
-      setShowBulkInput(false);
+      setGalleryUrlError(null);
+      setIsAddingImageUrl(false);
+      setResolvingImageUrls({});
+      setAttemptedResolveUrls({});
       setFailedImageUrls({});
       setPSizeChartImage(editingProduct.sizeChartImage || '');
       setPCareImage(editingProduct.careImage || '');
@@ -729,58 +713,93 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setValidationError(null);
   };
 
-  // ==========================================
-  // SECTION 3: COMMON IMAGE GALLERY HELPERS
-  // ==========================================
-  const handleAddGalleryImage = (urlToAdd?: string) => {
-    const raw = (urlToAdd ?? galleryImageInput).trim();
-    if (!raw) return;
-    const extracted = extractAndNormalizeImageUrls(raw);
-    if (extracted.length === 0) return;
-
-    const updated = [...pGalleryImages];
-    extracted.forEach((u) => {
-      if (!updated.includes(u)) {
-        updated.push(u);
+  // Automatically resolve any share-viewer links (e.g., kommodo.ai/i/..., ibb.co/..., postimg.cc/...) in the gallery
+  useEffect(() => {
+    pGalleryImages.forEach((imgUrl) => {
+      if (
+        isImageShareViewerUrl(imgUrl) &&
+        !resolvingImageUrls[imgUrl] &&
+        !attemptedResolveUrls[imgUrl]
+      ) {
+        setResolvingImageUrls((prev) => ({ ...prev, [imgUrl]: true }));
+        setAttemptedResolveUrls((prev) => ({ ...prev, [imgUrl]: true }));
+        resolveDirectImageUrl(imgUrl)
+          .then((resolved) => {
+            if (resolved && resolved !== imgUrl) {
+              setPGalleryImages((prev) =>
+                Array.from(new Set(prev.map((u) => (u === imgUrl ? resolved : u))))
+              );
+              setPPrimaryImage((prev) => (prev === imgUrl ? resolved : prev));
+              setFailedImageUrls((prev) => {
+                const next = { ...prev };
+                delete next[imgUrl];
+                delete next[resolved];
+                return next;
+              });
+            }
+          })
+          .finally(() => {
+            setResolvingImageUrls((prev) => {
+              const next = { ...prev };
+              delete next[imgUrl];
+              return next;
+            });
+          });
       }
     });
+  }, [pGalleryImages, resolvingImageUrls, attemptedResolveUrls]);
+
+  // ==========================================
+  // SECTION 3: PRODUCT IMAGE GALLERY HELPERS
+  // ==========================================
+  const handleAddGalleryImage = async () => {
+    const raw = galleryImageInput.trim();
+    if (!raw) {
+      setGalleryUrlError('Please enter a product image URL before clicking + Add Image.');
+      return;
+    }
+
+    let normalized = normalizeSingleImageUrl(raw);
+    const isValidUrlFormat =
+      /^https?:\/\/.+/i.test(normalized) ||
+      normalized.startsWith('data:image/') ||
+      normalized.startsWith('/');
+
+    if (!normalized || !isValidUrlFormat) {
+      setGalleryUrlError('Please enter a valid image URL starting with https:// or http://');
+      return;
+    }
+
+    if (isImageShareViewerUrl(normalized)) {
+      setIsAddingImageUrl(true);
+      try {
+        const resolved = await resolveDirectImageUrl(normalized);
+        if (resolved) {
+          normalized = resolved;
+        }
+      } finally {
+        setIsAddingImageUrl(false);
+      }
+    }
+
+    if (pGalleryImages.includes(normalized)) {
+      setGalleryUrlError('This image URL has already been added to the product gallery.');
+      return;
+    }
+
+    const updated = [...pGalleryImages, normalized];
     setPGalleryImages(updated);
-    if (!pPrimaryImage.trim() && updated.length > 0) {
-      setPPrimaryImage(updated[0]);
+    // Only set primary image if none is selected yet — never replace an existing primary selection
+    if (!pPrimaryImage.trim()) {
+      setPPrimaryImage(normalized);
     }
     setFailedImageUrls((prev) => {
       const next = { ...prev };
-      extracted.forEach((u) => delete next[u]);
+      delete next[normalized];
       return next;
     });
-    if (urlToAdd === undefined) {
-      setGalleryImageInput('');
-    }
-    setValidationError(null);
-  };
-
-  const handleBulkAddImages = () => {
-    if (!bulkImageInput.trim()) return;
-    const extracted = extractAndNormalizeImageUrls(bulkImageInput);
-    if (extracted.length === 0) return;
-
-    const updated = [...pGalleryImages];
-    extracted.forEach((u) => {
-      if (!updated.includes(u)) {
-        updated.push(u);
-      }
-    });
-    setPGalleryImages(updated);
-    if (!pPrimaryImage.trim() && updated.length > 0) {
-      setPPrimaryImage(updated[0]);
-    }
-    setFailedImageUrls((prev) => {
-      const next = { ...prev };
-      extracted.forEach((u) => delete next[u]);
-      return next;
-    });
-    setBulkImageInput('');
-    setShowBulkInput(false);
+    setGalleryImageInput('');
+    setGalleryUrlError(null);
     setValidationError(null);
   };
 
@@ -793,6 +812,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     if (pPrimaryImage === oldUrl) {
       setPPrimaryImage(normalized);
     }
+    setAttemptedResolveUrls((prev) => {
+      const next = { ...prev };
+      delete next[oldUrl];
+      delete next[normalized];
+      return next;
+    });
     setFailedImageUrls((prev) => {
       const next = { ...prev };
       delete next[oldUrl];
@@ -801,31 +826,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     });
   };
 
-  const handleFileUploadToGallery = (e: React.ChangeEvent<HTMLInputElement>) => {
-    const files = e.target.files;
-    if (!files || files.length === 0) return;
-    Array.from(files).forEach((file) => {
-      const reader = new FileReader();
-      reader.onload = () => {
-        const result = typeof reader.result === 'string' ? reader.result : '';
-        if (result) {
-          setPGalleryImages((prev) => {
-            if (prev.includes(result)) return prev;
-            const next = [...prev, result];
-            setPPrimaryImage((currPrimary) => (currPrimary.trim() ? currPrimary : result));
+  const handleGalleryImageLoadError = async (failedUrl: string) => {
+    // Before marking as failed, attempt to resolve direct image URL from share page metadata once
+    if (!attemptedResolveUrls[failedUrl] && failedUrl.startsWith('http')) {
+      setAttemptedResolveUrls((prev) => ({ ...prev, [failedUrl]: true }));
+      setResolvingImageUrls((prev) => ({ ...prev, [failedUrl]: true }));
+      try {
+        const resolved = await resolveDirectImageUrl(failedUrl);
+        if (resolved && resolved !== failedUrl) {
+          setPGalleryImages((prev) =>
+            Array.from(new Set(prev.map((u) => (u === failedUrl ? resolved : u))))
+          );
+          setPPrimaryImage((prev) => (prev === failedUrl ? resolved : prev));
+          setFailedImageUrls((prev) => {
+            const next = { ...prev };
+            delete next[failedUrl];
+            delete next[resolved];
             return next;
           });
+          return;
         }
-      };
-      reader.readAsDataURL(file);
-    });
-    e.target.value = '';
-    setValidationError(null);
+      } finally {
+        setResolvingImageUrls((prev) => {
+          const next = { ...prev };
+          delete next[failedUrl];
+          return next;
+        });
+      }
+    }
+    setFailedImageUrls((prev) => ({ ...prev, [failedUrl]: true }));
   };
 
   const handleSetPrimaryImage = (img: string) => {
     setPPrimaryImage(img);
-    // Bring primary image to the front of gallery
+    // Place the selected primary image first while preserving the relative order of all other images
     const reordered = [img, ...pGalleryImages.filter((u) => u !== img)];
     setPGalleryImages(reordered);
   };
@@ -838,10 +872,28 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     nextList[idx] = nextList[targetIdx];
     nextList[targetIdx] = temp;
     setPGalleryImages(nextList);
-    if (idx === 0 || targetIdx === 0) {
-      if (!pPrimaryImage || pPrimaryImage === temp || pPrimaryImage === nextList[0]) {
-        setPPrimaryImage(nextList[0]);
-      }
+    // Do NOT overwrite pPrimaryImage when reordering images unless no primary image was set
+    if (!pPrimaryImage.trim() && nextList[0]) {
+      setPPrimaryImage(nextList[0]);
+    }
+  };
+
+  const handleSetImagePosition = (fromIdx: number, toIdx: number) => {
+    if (
+      fromIdx === toIdx ||
+      fromIdx < 0 ||
+      toIdx < 0 ||
+      fromIdx >= pGalleryImages.length ||
+      toIdx >= pGalleryImages.length
+    ) {
+      return;
+    }
+    const nextList = [...pGalleryImages];
+    const [movedItem] = nextList.splice(fromIdx, 1);
+    nextList.splice(toIdx, 0, movedItem);
+    setPGalleryImages(nextList);
+    if (!pPrimaryImage.trim() && nextList[0]) {
+      setPPrimaryImage(nextList[0]);
     }
   };
 
@@ -849,6 +901,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const targetImg = pGalleryImages[idx];
     const remaining = pGalleryImages.filter((_, i) => i !== idx);
     setPGalleryImages(remaining);
+    setFailedImageUrls((prev) => {
+      const next = { ...prev };
+      delete next[targetImg];
+      return next;
+    });
     if (pPrimaryImage === targetImg) {
       setPPrimaryImage(remaining[0] || '');
     }
@@ -1120,31 +1177,35 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const finalSizes = variantType === 'none' ? [] : [...pAvailableSizes];
     const sizeKeysForInventory = finalSizes.length > 0 ? finalSizes : ['Single Unit'];
 
-    // Common Product Image Gallery (also include any pending un-submitted URLs in the inputs)
-    const pendingSingleUrls = galleryImageInput.trim()
-      ? extractAndNormalizeImageUrls(galleryImageInput)
-      : [];
-    const pendingBulkUrls = bulkImageInput.trim()
-      ? extractAndNormalizeImageUrls(bulkImageInput)
-      : [];
-    const finalGalleryImages = reconstructAndNormalizeImageList([
-      ...pGalleryImages,
-      ...pendingSingleUrls,
-      ...pendingBulkUrls,
-    ]);
-    const normalizedPrimary = normalizeSingleImageUrl(pPrimaryImage.trim());
-    if (normalizedPrimary && !finalGalleryImages.includes(normalizedPrimary)) {
-      finalGalleryImages.unshift(normalizedPrimary);
-    } else if (normalizedPrimary && finalGalleryImages.includes(normalizedPrimary)) {
-      const without = finalGalleryImages.filter((img) => img !== normalizedPrimary);
-      finalGalleryImages.splice(0, finalGalleryImages.length, normalizedPrimary, ...without);
-    }
+    // Product Image Gallery: Save only the exact admin-added images in their saved order with the selected primary image first
+    const rawCleanGallery = pGalleryImages
+      .map((u) => normalizeSingleImageUrl(u))
+      .filter(Boolean);
 
-    if (finalGalleryImages.length === 0) {
+    if (rawCleanGallery.length === 0) {
       setActiveSection(3);
-      setValidationError('Please provide at least one product image in Section 3 (Product Images).');
+      setValidationError(
+        'Please add at least one product image URL in Section 3 (Product Images) before saving.'
+      );
       return;
     }
+
+    const cleanGallery = await Promise.all(
+      rawCleanGallery.map((u) => (isImageShareViewerUrl(u) ? resolveDirectImageUrl(u) : u))
+    );
+
+    const rawSelectedPrimary = normalizeSingleImageUrl(pPrimaryImage.trim());
+    const selectedPrimary = isImageShareViewerUrl(rawSelectedPrimary)
+      ? await resolveDirectImageUrl(rawSelectedPrimary)
+      : rawSelectedPrimary;
+    const finalPrimaryImage =
+      selectedPrimary && cleanGallery.includes(selectedPrimary)
+        ? selectedPrimary
+        : cleanGallery[0];
+    const finalGalleryImages = [
+      finalPrimaryImage,
+      ...cleanGallery.filter((img) => img !== finalPrimaryImage),
+    ];
 
     const previousBasePrice = editingProduct?.price;
     const previousSalePrice = editingProduct?.salePrice;
@@ -1314,7 +1375,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       shippingEligible: pShippingEligible,
       returnEligible: pReturnEligible,
       createdAt: editingProduct?.createdAt || new Date().toISOString(),
-      primaryImage: pPrimaryImage.trim() || finalGalleryImages[0] || '',
+      primaryImage: finalPrimaryImage,
       images: finalGalleryImages,
       additionalImages: finalGalleryImages.slice(1),
       colors: pColors,
@@ -1695,148 +1756,71 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 3: COMMON PRODUCT IMAGES GALLERY */}
+          {/* SECTION 3: PRODUCT IMAGE GALLERY */}
           {activeSection === 3 && (
             <div className="space-y-5 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
-                  <h3 className="text-sm font-black text-[#192E4D]">Section 3: Common Product Images</h3>
+                  <h3 className="text-sm font-black text-[#192E4D]">
+                    Section 3: Product Image Gallery
+                  </h3>
                   <p className="text-xs text-[#697586]">
-                    Upload and organize product images in one common gallery. All images belong to the product as a whole and remain visible across all color selections.
+                    Add product photos by entering image URLs below. Select a primary image and arrange the display order for the storefront.
                   </p>
                 </div>
                 <span className="px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 font-extrabold text-xs shrink-0">
-                  {pGalleryImages.length} Image(s) in Gallery
+                  {pGalleryImages.length} Image{pGalleryImages.length !== 1 ? 's' : ''} Added
                 </span>
               </div>
 
-              {/* Sample image quick-presets */}
-              <div className="p-3 bg-slate-50 border border-slate-200 rounded-2xl space-y-2">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
-                  Quick Load High-Quality Sample Image Sets
-                </span>
-                <div className="flex flex-wrap gap-2">
-                  {SAMPLE_IMAGE_SETS.map((set) => (
-                    <button
-                      key={set.label}
-                      type="button"
-                      onClick={() => {
-                        const merged = Array.from(new Set([...pGalleryImages, ...set.images]));
-                        setPGalleryImages(merged);
-                        if (!pPrimaryImage && merged.length > 0) {
-                          setPPrimaryImage(merged[0]);
-                        }
-                      }}
-                      className="px-2.5 py-1.5 rounded-xl bg-white border border-slate-300 text-xs font-bold text-[#192E4D] hover:border-[#08A9A2] hover:bg-teal-50/50 cursor-pointer transition-all"
-                    >
-                      + {set.label} ({set.images.length} views)
-                    </button>
-                  ))}
-                  {pGalleryImages.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={() => {
-                        setPGalleryImages([]);
-                        setPPrimaryImage('');
-                      }}
-                      className="px-2.5 py-1.5 rounded-xl bg-rose-50 border border-rose-200 text-xs font-bold text-rose-600 hover:bg-rose-100 cursor-pointer ml-auto"
-                    >
-                      Clear Gallery
-                    </button>
-                  )}
-                </div>
-              </div>
-
-              {/* Add Single or Multiple Image URLs */}
-              <div className="space-y-2">
-                <label className="font-bold text-[#192E4D] text-xs block">
-                  Add Product Image URL(s)
+              {/* Simple Single Image URL Input */}
+              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2">
+                <label className="font-extrabold text-[#192E4D] text-xs block">
+                  Product Image Gallery
                 </label>
-                <div className="flex flex-wrap sm:flex-nowrap gap-2">
+                <div className="flex flex-col sm:flex-row gap-2">
                   <input
-                    type="text"
+                    type="url"
                     value={galleryImageInput}
-                    onChange={(e) => setGalleryImageInput(e.target.value)}
+                    onChange={(e) => {
+                      setGalleryImageInput(e.target.value);
+                      if (galleryUrlError) setGalleryUrlError(null);
+                    }}
                     onKeyDown={(e) => {
                       if (e.key === 'Enter') {
                         e.preventDefault();
                         handleAddGalleryImage();
                       }
                     }}
-                    placeholder="Paste image URL (or multiple URLs separated by spaces/lines)..."
-                    className="flex-1 min-w-[200px] h-10 px-3 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
+                    placeholder="Enter product image URL..."
+                    className="flex-1 h-10 px-3.5 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
                   />
                   <button
                     type="button"
-                    onClick={() => handleAddGalleryImage()}
-                    className="px-4 h-10 bg-[#08A9A2] hover:bg-[#079690] text-white rounded-xl text-xs font-bold flex items-center gap-1 cursor-pointer transition-colors shrink-0"
+                    disabled={isAddingImageUrl}
+                    onClick={handleAddGalleryImage}
+                    className="px-5 h-10 bg-[#08A9A2] hover:bg-[#079690] disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0"
                   >
-                    <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add to Gallery</span>
+                    <Plus className="w-4 h-4" />
+                    <span>{isAddingImageUrl ? 'Adding Image...' : '+ Add Image'}</span>
                   </button>
-                  <button
-                    type="button"
-                    onClick={() => setShowBulkInput(!showBulkInput)}
-                    className="px-3 h-10 bg-white border border-[#E6EAF0] hover:bg-slate-50 text-[#192E4D] rounded-xl text-xs font-bold cursor-pointer transition-colors shrink-0"
-                  >
-                    {showBulkInput ? 'Close Bulk' : 'Bulk URLs'}
-                  </button>
-                  <label className="px-3 h-10 bg-white border border-[#E6EAF0] hover:bg-slate-50 text-[#192E4D] rounded-xl text-xs font-bold cursor-pointer transition-colors shrink-0 flex items-center gap-1">
-                    <ImageIcon className="w-3.5 h-3.5 text-[#08A9A2]" />
-                    <span>Upload Photos</span>
-                    <input
-                      type="file"
-                      accept="image/*"
-                      multiple
-                      onChange={handleFileUploadToGallery}
-                      className="hidden"
-                    />
-                  </label>
                 </div>
+                {galleryUrlError && (
+                  <p className="text-xs font-bold text-rose-600 flex items-center gap-1.5 pt-0.5">
+                    <AlertCircle className="w-3.5 h-3.5 shrink-0" />
+                    <span>{galleryUrlError}</span>
+                  </p>
+                )}
               </div>
 
-              {/* Bulk Image URLs Drawer */}
-              {showBulkInput && (
-                <div className="p-3.5 bg-slate-50 border border-slate-200 rounded-2xl space-y-2 animate-in fade-in-50">
-                  <div className="flex items-center justify-between">
-                    <label className="text-xs font-extrabold text-[#192E4D]">
-                      Paste Multiple Image URLs (one URL per line — URLs with commas inside them are supported)
-                    </label>
-                  </div>
-                  <textarea
-                    rows={4}
-                    value={bulkImageInput}
-                    onChange={(e) => setBulkImageInput(e.target.value)}
-                    placeholder="https://example.com/product-front.jpg&#10;https://example.com/product-back.jpg&#10;https://example.com/product-side.jpg"
-                    className="w-full p-2.5 border border-[#E6EAF0] rounded-xl text-xs font-mono bg-white"
-                  />
-                  <div className="flex justify-end gap-2">
-                    <button
-                      type="button"
-                      onClick={() => setShowBulkInput(false)}
-                      className="px-3 py-1.5 rounded-lg border border-gray-300 text-xs font-bold text-gray-600 bg-white cursor-pointer"
-                    >
-                      Cancel
-                    </button>
-                    <button
-                      type="button"
-                      onClick={handleBulkAddImages}
-                      className="px-4 py-1.5 rounded-lg bg-[#192E4D] text-white text-xs font-bold cursor-pointer"
-                    >
-                      Add All URLs
-                    </button>
-                  </div>
-                </div>
-              )}
-
-              {/* Common Gallery Grid */}
-              <div className="space-y-2">
-                <div className="flex items-center justify-between">
+              {/* Added Product Images Gallery */}
+              <div className="space-y-2.5">
+                <div className="flex flex-col sm:flex-row sm:items-center justify-between gap-1">
                   <label className="font-bold text-[#192E4D] text-xs">
-                    Common Product Gallery ({pGalleryImages.length} Image{pGalleryImages.length !== 1 ? 's' : ''})
+                    Added Product Images ({pGalleryImages.length})
                   </label>
-                  <span className="text-[11px] text-gray-500 font-medium">
-                    The primary image is shown first on catalog cards and store listings.
+                  <span className="text-[11px] text-[#697586] font-medium">
+                    The PRIMARY image appears first on product cards, search results, and the customer gallery.
                   </span>
                 </div>
 
@@ -1844,31 +1828,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   <div className="p-8 rounded-2xl border-2 border-dashed border-gray-300 bg-slate-50/50 text-center space-y-2">
                     <ImageIcon className="w-8 h-8 text-gray-400 mx-auto" />
                     <p className="font-bold text-gray-600 text-xs">
-                      No common images added to gallery yet.
+                      No product images added yet.
                     </p>
                     <p className="text-[11px] text-gray-400 max-w-sm mx-auto">
-                      Add image URLs above, upload photos, or click one of the quick sample sets to populate the product gallery.
+                      Enter a valid product image URL above and click &ldquo;+ Add Image&rdquo; to add photos to this product.
                     </p>
                   </div>
                 ) : (
-                  <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 lg:grid-cols-4 gap-3.5">
                     {pGalleryImages.map((img, idx) => {
                       const isPrimary = pPrimaryImage === img;
-                      const hasLoadFailed = Boolean(failedImageUrls[img]);
+                      const isResolving = Boolean(resolvingImageUrls[img]);
+                      const hasLoadFailed = Boolean(failedImageUrls[img]) && !isResolving;
                       return (
                         <div
                           key={`gallery_slot_${idx}`}
-                          className={`relative group rounded-2xl border p-2 bg-white flex flex-col justify-between transition-all ${
+                          className={`relative group rounded-2xl border p-2.5 bg-white flex flex-col justify-between transition-all ${
                             isPrimary
                               ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/30 shadow-sm'
-                              : 'border-slate-200 hover:border-slate-400'
+                              : 'border-slate-200 hover:border-slate-300'
                           }`}
                         >
+                          {/* Image Preview Box */}
                           <div className="relative aspect-square w-full rounded-xl overflow-hidden bg-slate-100 border border-slate-100 flex items-center justify-center">
-                            {!hasLoadFailed ? (
+                            {isResolving ? (
+                              <div className="p-3 text-center space-y-1.5">
+                                <div className="w-6 h-6 border-2 border-[#08A9A2] border-t-transparent rounded-full animate-spin mx-auto" />
+                                <p className="text-[11px] font-bold text-[#192E4D] leading-tight">
+                                  Loading image from link...
+                                </p>
+                              </div>
+                            ) : !hasLoadFailed ? (
                               <img
                                 src={img}
-                                alt={`Product view ${idx + 1}`}
+                                alt={`Product image ${idx + 1}`}
                                 referrerPolicy="no-referrer"
                                 className="w-full h-full object-cover"
                                 onLoad={() => {
@@ -1881,87 +1874,127 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                                   }
                                 }}
                                 onError={() => {
-                                  setFailedImageUrls((prev) => ({ ...prev, [img]: true }));
+                                  handleGalleryImageLoadError(img);
                                 }}
                               />
                             ) : (
                               <div className="p-3 text-center space-y-1.5">
-                                <AlertCircle className="w-6 h-6 text-amber-500 mx-auto" />
-                                <p className="text-[10px] font-bold text-slate-700 leading-tight">
-                                  Preview blocked or invalid direct image link
+                                <AlertCircle className="w-6 h-6 text-rose-500 mx-auto" />
+                                <p className="text-[11px] font-bold text-rose-700 leading-tight">
+                                  Invalid or unavailable image URL
                                 </p>
-                                <p className="text-[9px] text-slate-400 break-all line-clamp-2 font-mono">
-                                  {img}
+                                <p className="text-[10px] text-slate-500 leading-tight">
+                                  Correct the URL below or remove this image.
                                 </p>
                               </div>
                             )}
+
+                            {/* PRIMARY Badge */}
                             {isPrimary && (
-                              <div className="absolute top-1.5 left-1.5 px-2 py-0.5 rounded-md bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm">
+                              <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm">
                                 <Star className="w-3 h-3 fill-current" />
                                 <span>PRIMARY</span>
                               </div>
                             )}
-                            <div className="absolute bottom-1.5 left-1.5 px-1.5 py-0.5 rounded-md bg-black/60 text-white text-[9px] font-mono">
-                              #{idx + 1}
+
+                            {/* Position Badge */}
+                            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[10px] font-mono font-bold">
+                              Position #{idx + 1}
                             </div>
                           </div>
 
-                          {/* Editable Individual Image URL Input so each card shows its exact URL */}
-                          <div className="pt-1.5">
+                          {/* Image URL Display / Correction Input */}
+                          <div className="pt-2">
+                            <label className="text-[10px] font-bold text-[#697586] block mb-0.5">
+                              Image URL
+                            </label>
                             <input
-                              type="text"
+                              type="url"
                               value={img}
                               onChange={(e) => handleUpdateGalleryImageUrl(idx, e.target.value)}
                               title={img}
-                              placeholder={`Image #${idx + 1} URL`}
-                              className="w-full px-2 py-1 text-[10px] font-mono bg-slate-50 border border-slate-200 rounded-lg text-slate-600 focus:bg-white focus:border-[#08A9A2] focus:outline-hidden truncate"
+                              placeholder="https://..."
+                              className={`w-full px-2 py-1.5 text-[10px] font-mono rounded-lg border focus:outline-hidden truncate ${
+                                hasLoadFailed
+                                  ? 'bg-rose-50 border-rose-300 text-rose-800 focus:border-rose-500'
+                                  : 'bg-slate-50 border-slate-200 text-slate-700 focus:bg-white focus:border-[#08A9A2]'
+                              }`}
                             />
                           </div>
 
-                          <div className="pt-2 flex items-center justify-between gap-1">
-                            {!isPrimary ? (
-                              <button
-                                type="button"
-                                onClick={() => handleSetPrimaryImage(img)}
-                                className="px-2 py-1 rounded-lg bg-teal-50 text-[#08A9A2] hover:bg-teal-100 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
-                                title="Set as primary image"
-                              >
-                                <Star className="w-3 h-3" />
-                                <span>Set Primary</span>
-                              </button>
-                            ) : (
-                              <span className="text-[10px] font-bold text-teal-700 px-1.5">
-                                Primary View
-                              </span>
-                            )}
+                          {/* Primary Selection & Position Reordering Controls */}
+                          <div className="pt-2.5 mt-2 border-t border-slate-100 flex flex-col gap-2">
+                            <div className="flex items-center justify-between gap-1">
+                              {!isPrimary ? (
+                                <button
+                                  type="button"
+                                  onClick={() => handleSetPrimaryImage(img)}
+                                  className="px-2.5 py-1.5 rounded-lg bg-teal-50 text-[#08A9A2] hover:bg-teal-100 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                                  title="Set as Primary Image"
+                                >
+                                  <Star className="w-3 h-3" />
+                                  <span>Set as Primary</span>
+                                </button>
+                              ) : (
+                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold flex items-center gap-1">
+                                  <Check className="w-3 h-3" />
+                                  <span>Primary Image</span>
+                                </span>
+                              )}
 
-                            <div className="flex items-center gap-0.5 ml-auto">
-                              <button
-                                type="button"
-                                disabled={idx === 0}
-                                onClick={() => handleMoveImage(idx, 'left')}
-                                className="p-1 rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                                title="Move Earlier"
-                              >
-                                <ChevronLeft className="w-3.5 h-3.5" />
-                              </button>
-                              <button
-                                type="button"
-                                disabled={idx === pGalleryImages.length - 1}
-                                onClick={() => handleMoveImage(idx, 'right')}
-                                className="p-1 rounded-md text-slate-500 hover:bg-slate-100 disabled:opacity-30 cursor-pointer"
-                                title="Move Later"
-                              >
-                                <ChevronRight className="w-3.5 h-3.5" />
-                              </button>
                               <button
                                 type="button"
                                 onClick={() => handleRemoveGalleryImage(idx)}
-                                className="p-1 rounded-md text-rose-500 hover:bg-rose-50 cursor-pointer"
-                                title="Remove image"
+                                className="px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ml-auto"
+                                title="Remove image from gallery"
                               >
                                 <Trash2 className="w-3.5 h-3.5" />
+                                <span>Remove</span>
                               </button>
+                            </div>
+
+                            {/* Position / Order Controls */}
+                            <div className="flex items-center justify-between gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80">
+                              <div className="flex items-center gap-1">
+                                <span className="text-[10px] font-bold text-[#697586]">Order:</span>
+                                <select
+                                  aria-label={`Set display position for image ${idx + 1}`}
+                                  value={idx}
+                                  onChange={(e) =>
+                                    handleSetImagePosition(idx, Number(e.target.value))
+                                  }
+                                  className="text-[10px] font-extrabold text-[#192E4D] bg-white border border-slate-200 rounded px-1.5 py-0.5 cursor-pointer"
+                                >
+                                  {pGalleryImages.map((_, posIdx) => (
+                                    <option key={posIdx} value={posIdx}>
+                                      #{posIdx + 1}
+                                    </option>
+                                  ))}
+                                </select>
+                              </div>
+
+                              <div className="flex items-center gap-0.5">
+                                <button
+                                  type="button"
+                                  disabled={idx === 0}
+                                  onClick={() => handleMoveImage(idx, 'left')}
+                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-2xs disabled:opacity-30 cursor-pointer"
+                                  title="Move Left / Up"
+                                >
+                                  <ChevronLeft className="w-3.5 h-3.5 hidden sm:block" />
+                                  <ArrowUp className="w-3.5 h-3.5 block sm:hidden" />
+                                </button>
+                                <button
+                                  type="button"
+                                  disabled={idx === pGalleryImages.length - 1}
+                                  onClick={() => handleMoveImage(idx, 'right')}
+                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-2xs disabled:opacity-30 cursor-pointer"
+                                  title="Move Right / Down"
+                                >
+                                  <ChevronRight className="w-3.5 h-3.5 hidden sm:block" />
+                                  <ArrowDown className="w-3.5 h-3.5 block sm:hidden" />
+                                </button>
+                              </div>
                             </div>
                           </div>
                         </div>
@@ -3187,7 +3220,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     </span>
                   </div>
                   <div>
-                    <span className="text-gray-400 block">Common Gallery:</span>
+                    <span className="text-gray-400 block">Product Gallery:</span>
                     <span className="font-bold">
                       {pGalleryImages.length} Image(s)
                     </span>
@@ -3199,6 +3232,40 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     </span>
                   </div>
                 </div>
+
+                {/* Gallery Order Preview Before Saving */}
+                {pGalleryImages.length > 0 && (
+                  <div className="pt-2 border-t border-slate-200 space-y-1.5">
+                    <span className="text-[11px] font-bold text-[#192E4D] block">
+                      Storefront Gallery Order Preview (Primary image first):
+                    </span>
+                    <div className="flex items-center gap-2 overflow-x-auto py-1">
+                      {[
+                        ...(pPrimaryImage.trim() && pGalleryImages.includes(pPrimaryImage.trim())
+                          ? [pPrimaryImage.trim()]
+                          : []),
+                        ...pGalleryImages.filter((u) => u !== pPrimaryImage.trim()),
+                      ].map((img, idx) => (
+                        <div
+                          key={`preview_slot_${idx}`}
+                          className={`relative w-14 h-16 rounded-lg overflow-hidden border bg-white shrink-0 ${
+                            idx === 0 ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/25' : 'border-slate-200'
+                          }`}
+                        >
+                          <img
+                            src={img}
+                            alt={`Order ${idx + 1}`}
+                            referrerPolicy="no-referrer"
+                            className="w-full h-full object-cover"
+                          />
+                          <span className="absolute bottom-0.5 left-0.5 px-1 py-0.2 rounded bg-black/70 text-white text-[8px] font-mono font-bold">
+                            {idx === 0 ? 'PRIMARY' : `#${idx + 1}`}
+                          </span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}

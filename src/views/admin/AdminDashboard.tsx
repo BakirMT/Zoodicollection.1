@@ -672,19 +672,25 @@ export const AdminDashboard: React.FC = () => {
                         p.primaryImage ||
                         p.images?.[0] ||
                         variants[0]?.images?.[0] ||
-                        'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
+                        '';
                       return (
                         <div
                           key={p.id}
                           className="p-4 rounded-2xl bg-white border border-[#E6EAF0] shadow-2xs space-y-3"
                         >
                           <div className="flex items-start gap-3">
-                            <img
-                              src={primaryImg}
-                              alt={p.name}
-                              referrerPolicy="no-referrer"
-                              className="w-16 h-16 object-cover rounded-xl border border-slate-100 shrink-0"
-                            />
+                            {primaryImg ? (
+                              <img
+                                src={primaryImg}
+                                alt={p.name}
+                                referrerPolicy="no-referrer"
+                                className="w-16 h-16 object-cover rounded-xl border border-slate-100 shrink-0"
+                              />
+                            ) : (
+                              <div className="w-16 h-16 rounded-xl border border-slate-200 bg-slate-50 flex items-center justify-center text-[10px] font-bold text-slate-400 shrink-0">
+                                No Img
+                              </div>
+                            )}
                             <div className="flex-1 min-w-0">
                               <span className="text-[10px] uppercase font-bold text-[#08A9A2] tracking-wider block">
                                 {p.brand}
@@ -769,17 +775,23 @@ export const AdminDashboard: React.FC = () => {
                               p.primaryImage ||
                               p.images?.[0] ||
                               variants[0]?.images?.[0] ||
-                              'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=300&q=80';
+                              '';
                             return (
                               <tr key={p.id} className="hover:bg-[#FBFDFE]">
                                 <td className="p-3 font-bold text-[#192E4D]">
                                   <div className="flex items-center gap-2">
-                                    <img
-                                      src={primaryImg}
-                                      alt=""
-                                      referrerPolicy="no-referrer"
-                                      className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
-                                    />
+                                    {primaryImg ? (
+                                      <img
+                                        src={primaryImg}
+                                        alt=""
+                                        referrerPolicy="no-referrer"
+                                        className="w-10 h-10 object-cover rounded-lg border border-[#F0F4F8]"
+                                      />
+                                    ) : (
+                                      <div className="w-10 h-10 rounded-lg border border-slate-200 bg-slate-50 flex items-center justify-center text-[9px] font-bold text-slate-400 shrink-0">
+                                        No Img
+                                      </div>
+                                    )}
                                     <div>
                                       <span className="block">{p.name}</span>
                                       <span className="text-[10px] text-[#08A9A2] font-semibold">

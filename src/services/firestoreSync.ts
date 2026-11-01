@@ -123,12 +123,46 @@ export function sanitizeForFirestore<T>(value: T): T {
   return value;
 }
 
+const RESOLVED_IMAGE_URL_CACHE_KEY = 'zoodi_resolved_image_urls';
+const memoryResolvedUrlCache: Record<string, string> = {};
+
+function getCachedResolvedImageUrl(rawUrl: string): string | undefined {
+  if (memoryResolvedUrlCache[rawUrl]) return memoryResolvedUrlCache[rawUrl];
+  try {
+    const stored = localStorage.getItem(RESOLVED_IMAGE_URL_CACHE_KEY);
+    if (stored) {
+      const parsed = JSON.parse(stored);
+      if (parsed && typeof parsed[rawUrl] === 'string' && parsed[rawUrl]) {
+        memoryResolvedUrlCache[rawUrl] = parsed[rawUrl];
+        return parsed[rawUrl];
+      }
+    }
+  } catch {
+    // ignore storage errors
+  }
+  return undefined;
+}
+
+function saveCachedResolvedImageUrl(rawUrl: string, resolvedUrl: string): void {
+  if (!rawUrl || !resolvedUrl || rawUrl === resolvedUrl) return;
+  memoryResolvedUrlCache[rawUrl] = resolvedUrl;
+  try {
+    const stored = localStorage.getItem(RESOLVED_IMAGE_URL_CACHE_KEY);
+    const parsed = stored ? JSON.parse(stored) : {};
+    parsed[rawUrl] = resolvedUrl;
+    localStorage.setItem(RESOLVED_IMAGE_URL_CACHE_KEY, JSON.stringify(parsed));
+  } catch {
+    // ignore storage errors
+  }
+}
+
 /**
  * Normalizes a single image URL:
  * - Strips surrounding quotes, angle brackets, and trailing commas/semicolons
  * - Extracts the direct image URL if the user pasted a Google Images search link (`imgres?imgurl=...`)
  * - Converts Google Drive share links (`drive.google.com/file/d/...` or `open?id=...`) to direct image URLs
  * - Converts Dropbox `?dl=0` links to direct `?raw=1` links
+ * - Converts Imgur / Gyazo / IPFS links and returns any previously resolved share-page image URL
  */
 export function normalizeSingleImageUrl(rawInput: string): string {
   if (!rawInput || typeof rawInput !== 'string') return '';
@@ -149,9 +183,21 @@ export function normalizeSingleImageUrl(rawInput: string): string {
     return url;
   }
 
+  // Handle ipfs:// protocol links
+  if (url.startsWith('ipfs://')) {
+    const cid = url.replace(/^ipfs:\/\/(ipfs\/)?/i, '');
+    return `https://ipfs.io/ipfs/${cid}`;
+  }
+
   // Handle protocol-relative URLs
   if (url.startsWith('//')) {
     url = `https:${url}`;
+  }
+
+  // Check if this share-page URL was already resolved to a direct image URL
+  const cachedDirect = getCachedResolvedImageUrl(url);
+  if (cachedDirect) {
+    return cachedDirect;
   }
 
   try {
@@ -184,11 +230,159 @@ export function normalizeSingleImageUrl(rawInput: string): string {
       parsed.searchParams.set('raw', '1');
       return parsed.toString();
     }
+
+    // 4. Imgur single-image viewer link: convert imgur.com/ID -> i.imgur.com/ID.jpg
+    if (
+      (parsed.hostname === 'imgur.com' || parsed.hostname === 'www.imgur.com') &&
+      /^\/[A-Za-z0-9]{5,12}$/.test(parsed.pathname)
+    ) {
+      return `https://i.imgur.com${parsed.pathname}.jpg`;
+    }
+
+    // 5. Gyazo viewer link: convert gyazo.com/ID -> i.gyazo.com/ID.png
+    if (
+      (parsed.hostname === 'gyazo.com' || parsed.hostname === 'www.gyazo.com') &&
+      /^\/[A-Za-z0-9]{16,40}$/.test(parsed.pathname)
+    ) {
+      return `https://i.gyazo.com${parsed.pathname}.png`;
+    }
   } catch {
-    // If URL constructor fails, return cleaned string if it looks like a URL
+    // If URL constructor fails, return cleaned string
   }
 
   return url;
+}
+
+/**
+ * Extracts a direct image URL (`og:image`, `twitter:image`, or Next.js `imageUrl`) from an HTML share page
+ * such as `https://kommodo.ai/i/...`, `https://ibb.co/...`, `https://postimg.cc/...`, `https://freeimage.host/i/...`, etc.
+ */
+function extractDirectImageFromHtml(html: string): string | null {
+  if (!html || typeof html !== 'string') return null;
+
+  // 1. Check Next.js / JSON state `imageUrl` or `ogImageUrl` (used by kommodo.ai/i/...)
+  const nextImageUrlMatch = html.match(/"(?:imageUrl|ogImageUrl)"\s*:\s*"(https?:\/\/[^"\\]+)"/i);
+  if (nextImageUrlMatch?.[1] && !nextImageUrlMatch[1].endsWith('/kommodo-og.jpg')) {
+    return nextImageUrlMatch[1].trim();
+  }
+
+  // 2. Check <meta property="og:image" content="..."> (both attribute orders)
+  const ogMatch1 = html.match(
+    /<meta[^>]+property=["']og:image["'][^>]+content=["'](https?:\/\/[^"']+)["']/i
+  );
+  if (ogMatch1?.[1] && !ogMatch1[1].endsWith('/kommodo-og.jpg')) {
+    return ogMatch1[1].trim();
+  }
+  const ogMatch2 = html.match(
+    /<meta[^>]+content=["'](https?:\/\/[^"']+)["'][^>]+property=["']og:image["']/i
+  );
+  if (ogMatch2?.[1] && !ogMatch2[1].endsWith('/kommodo-og.jpg')) {
+    return ogMatch2[1].trim();
+  }
+
+  // 3. Check <meta name="twitter:image" content="...">
+  const twMatch1 = html.match(
+    /<meta[^>]+name=["']twitter:image(?::src)?["'][^>]+content=["'](https?:\/\/[^"']+)["']/i
+  );
+  if (twMatch1?.[1] && !twMatch1[1].endsWith('/kommodo-og.jpg')) {
+    return twMatch1[1].trim();
+  }
+  const twMatch2 = html.match(
+    /<meta[^>]+content=["'](https?:\/\/[^"']+)["'][^>]+name=["']twitter:image(?::src)?["']/i
+  );
+  if (twMatch2?.[1] && !twMatch2[1].endsWith('/kommodo-og.jpg')) {
+    return twMatch2[1].trim();
+  }
+
+  // 4. Check <link rel="image_src" href="...">
+  const linkMatch = html.match(
+    /<link[^>]+rel=["']image_src["'][^>]+href=["'](https?:\/\/[^"']+)["']/i
+  );
+  if (linkMatch?.[1]) {
+    return linkMatch[1].trim();
+  }
+
+  return null;
+}
+
+/**
+ * Checks whether a URL is a known HTML image-viewer share page (e.g. `kommodo.ai/i/...`, `ibb.co/...`, `postimg.cc/...`)
+ * that requires resolving its `og:image` / `imageUrl` metadata.
+ */
+export function isImageShareViewerUrl(url: string): boolean {
+  if (!url || typeof url !== 'string') return false;
+  try {
+    const parsed = new URL(url);
+    const host = parsed.hostname.toLowerCase();
+    return (
+      (host.includes('kommodo.ai') && parsed.pathname.startsWith('/i/')) ||
+      host === 'ibb.co' ||
+      host === 'www.ibb.co' ||
+      host === 'postimg.cc' ||
+      host === 'www.postimg.cc' ||
+      host.includes('freeimage.host') ||
+      host.includes('prnt.sc') ||
+      host.includes('imgbb.com') ||
+      (host.includes('imgur.com') && parsed.pathname.startsWith('/a/'))
+    );
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * Resolves a share-page URL (like `https://kommodo.ai/i/...`, `https://ibb.co/...`, `https://postimg.cc/...`)
+ * into its direct image asset URL so `<img>` tags can render it directly.
+ */
+export async function resolveDirectImageUrl(rawInput: string): Promise<string> {
+  const normalized = normalizeSingleImageUrl(rawInput);
+  if (!normalized || !normalized.startsWith('http')) {
+    return normalized;
+  }
+
+  const cached = getCachedResolvedImageUrl(normalized);
+  if (cached) return cached;
+
+  const encoded = encodeURIComponent(normalized);
+  const proxyEndpoints = [
+    `https://api.allorigins.win/raw?url=${encoded}`,
+    `https://api.allorigins.win/get?url=${encoded}`,
+    `https://corsproxy.io/?${encoded}`,
+  ];
+
+  for (const endpoint of proxyEndpoints) {
+    try {
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6500);
+      const res = await fetch(endpoint, { signal: controller.signal });
+      clearTimeout(timeoutId);
+      if (!res.ok) continue;
+
+      const text = await res.text();
+      let html = text;
+      if (endpoint.includes('/get?url=')) {
+        try {
+          const json = JSON.parse(text);
+          if (json && typeof json.contents === 'string') {
+            html = json.contents;
+          }
+        } catch {
+          // use raw text
+        }
+      }
+
+      const extracted = extractDirectImageFromHtml(html);
+      if (extracted && extracted.startsWith('http')) {
+        saveCachedResolvedImageUrl(normalized, extracted);
+        saveCachedResolvedImageUrl(rawInput.trim(), extracted);
+        return extracted;
+      }
+    } catch {
+      // try next proxy endpoint
+    }
+  }
+
+  return normalized;
 }
 
 /**
@@ -270,34 +464,38 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
       ? rawSalePrice
       : undefined;
 
-  // 1. Gather all unique images into one common product image gallery (reconstructing any comma-split URLs)
-  const rawImageCandidates: any[] = [];
-  if (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== '') {
-    rawImageCandidates.push(raw.primaryImage.trim());
+  // 1. Gather product images in their exact saved order, placing the selected primaryImage first
+  let baseImageList: string[] = [];
+  if (Array.isArray(raw?.images) && raw.images.length > 0) {
+    baseImageList = reconstructAndNormalizeImageList(raw.images);
+  } else {
+    const legacyCandidates: any[] = [];
+    if (typeof raw?.primaryImage === 'string' && raw.primaryImage.trim() !== '') {
+      legacyCandidates.push(raw.primaryImage.trim());
+    }
+    if (Array.isArray(raw?.additionalImages)) {
+      legacyCandidates.push(...raw.additionalImages);
+    }
+    if (Array.isArray(raw?.variants)) {
+      raw.variants.forEach((v: any) => {
+        if (Array.isArray(v?.images)) {
+          legacyCandidates.push(...v.images);
+        }
+      });
+    }
+    baseImageList = reconstructAndNormalizeImageList(legacyCandidates);
   }
-  if (Array.isArray(raw?.images)) {
-    rawImageCandidates.push(...raw.images);
-  }
-  if (Array.isArray(raw?.additionalImages)) {
-    rawImageCandidates.push(...raw.additionalImages);
-  }
-  if (Array.isArray(raw?.variants)) {
-    raw.variants.forEach((v: any) => {
-      if (Array.isArray(v?.images)) {
-        rawImageCandidates.push(...v.images);
-      }
-    });
-  }
-  const allCommonImages: string[] = reconstructAndNormalizeImageList(rawImageCandidates);
+
   const normalizedPrimaryCandidate =
     typeof raw?.primaryImage === 'string' ? normalizeSingleImageUrl(raw.primaryImage) : '';
   const primaryImage =
-    (normalizedPrimaryCandidate && allCommonImages.includes(normalizedPrimaryCandidate)
+    (normalizedPrimaryCandidate && baseImageList.includes(normalizedPrimaryCandidate)
       ? normalizedPrimaryCandidate
-      : allCommonImages[0]) || '';
-  if (primaryImage && !allCommonImages.includes(primaryImage)) {
-    allCommonImages.unshift(primaryImage);
-  }
+      : normalizedPrimaryCandidate || baseImageList[0]) || '';
+
+  const allCommonImages: string[] = primaryImage
+    ? [primaryImage, ...baseImageList.filter((img) => img !== primaryImage)]
+    : baseImageList;
 
   // 2. Normalize decoupled product colors
   const extractedColors: { id: string; name: string; hex: string }[] = [];
@@ -478,7 +676,7 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
       id: vId,
       colorName: vColorName,
       colorCode: vColorCode,
-      images: allCommonImages.length > 0 ? allCommonImages : vImages,
+      images: allCommonImages,
       sku: vBaseSku,
       price: vPrice,
       salePrice: vSalePrice,

@@ -28,7 +28,7 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
     product.images?.[0] ||
     activeVariant?.images?.[0] ||
     product.additionalImages?.[0] ||
-    'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
+    '';
 
   const isWishlisted = wishlistIds.includes(product.id);
 
@@ -86,15 +86,21 @@ export const ProductSpotlightCard: React.FC<ProductSpotlightCardProps> = ({
     >
       {/* Left Thumbnail Media (Compact & Proportional) */}
       <div className="relative w-28 h-28 sm:w-32 sm:h-32 rounded-xl bg-[#F6F8FA] overflow-hidden shrink-0">
-        <img
-          src={activeImage}
-          alt={product.name}
-          referrerPolicy="no-referrer"
-          className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
-            isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
-          }`}
-          loading="lazy"
-        />
+        {activeImage ? (
+          <img
+            src={activeImage}
+            alt={product.name}
+            referrerPolicy="no-referrer"
+            className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+              isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
+            }`}
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-[10px] font-bold text-slate-400">
+            No Image
+          </div>
+        )}
 
         {/* Discount or Out of Stock Badge */}
         {isOutOfStock ? (

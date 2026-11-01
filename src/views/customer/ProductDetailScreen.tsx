@@ -5,6 +5,8 @@ import {
   isProductVisibleToCustomer,
   getEffectiveProductPricing,
   reconstructAndNormalizeImageList,
+  isImageShareViewerUrl,
+  resolveDirectImageUrl,
 } from '../../services/firestoreSync';
 import {
   ChevronLeft,
@@ -259,20 +261,36 @@ export const ProductDetailScreen: React.FC = () => {
 
   const productReviews = reviews.filter((r) => r.productId === product.id && r.status === 'approved');
 
-  // Common product image gallery containing all product photos (Never filtered, replaced, or hidden by color choice)
-  const rawGallery: string[] = [
-    ...(product.primaryImage ? [product.primaryImage] : []),
-    ...(Array.isArray(product.images) ? product.images : []),
-    ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
-    ...((product.variants || []).flatMap((v) => v.images || [])),
-  ];
-  const galleryImages = reconstructAndNormalizeImageList(rawGallery);
-  if (galleryImages.length === 0) {
-    galleryImages.push('https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=800&q=80');
-  }
+  // Product image gallery containing only the exact admin-added product photos in saved order, with primaryImage first
+  const [resolvedUrlMap, setResolvedUrlMap] = useState<Record<string, string>>({});
+  const baseSavedGallery =
+    Array.isArray(product.images) && product.images.length > 0
+      ? reconstructAndNormalizeImageList(product.images)
+      : reconstructAndNormalizeImageList([
+          ...(product.primaryImage ? [product.primaryImage] : []),
+          ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
+          ...((product.variants || []).flatMap((v) => v.images || [])),
+        ]);
+  const primaryImg = product.primaryImage ? product.primaryImage.trim() : '';
+  const rawGalleryImages = primaryImg
+    ? [primaryImg, ...baseSavedGallery.filter((img) => img !== primaryImg)]
+    : baseSavedGallery;
+  const galleryImages = rawGalleryImages.map((u) => resolvedUrlMap[u] || u);
+
+  useEffect(() => {
+    rawGalleryImages.forEach((u) => {
+      if (isImageShareViewerUrl(u) && !resolvedUrlMap[u]) {
+        resolveDirectImageUrl(u).then((resolved) => {
+          if (resolved && resolved !== u) {
+            setResolvedUrlMap((prev) => ({ ...prev, [u]: resolved }));
+          }
+        });
+      }
+    });
+  }, [product.id]);
 
   const activeImageIdx = selectedImageIndex < galleryImages.length ? selectedImageIndex : 0;
-  const currentMainImage = galleryImages[activeImageIdx] || galleryImages[0];
+  const currentMainImage = galleryImages[activeImageIdx] || galleryImages[0] || '';
 
   return (
     <div className="flex flex-col min-h-screen bg-white pb-32">

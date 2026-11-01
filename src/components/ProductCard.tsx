@@ -22,7 +22,7 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
     product.images?.[0] ||
     primaryVariant?.images?.[0] ||
     product.additionalImages?.[0] ||
-    'https://images.unsplash.com/photo-1551028719-00167b16eac5?auto=format&fit=crop&w=400&q=80';
+    '';
 
   const { currentPrice, originalPrice, hasDiscount, discountPercent } =
     getEffectiveProductPricing(product, primaryVariant);
@@ -78,15 +78,21 @@ export const ProductCard: React.FC<ProductCardProps> = ({ product, onSelect, com
     >
       {/* Product Image & Badges */}
       <div className={`relative w-full bg-[#F6F8FA] overflow-hidden ${compact ? 'aspect-square' : 'aspect-4/5'}`}>
-        <img
-          src={primaryImage}
-          alt={product.name}
-          referrerPolicy="no-referrer"
-          className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
-            isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
-          }`}
-          loading="lazy"
-        />
+        {primaryImage ? (
+          <img
+            src={primaryImage}
+            alt={product.name}
+            referrerPolicy="no-referrer"
+            className={`w-full h-full object-cover object-center group-hover:scale-105 transition-transform duration-300 ${
+              isOutOfStock ? 'opacity-65 grayscale-[25%]' : ''
+            }`}
+            loading="lazy"
+          />
+        ) : (
+          <div className="w-full h-full flex items-center justify-center text-xs font-bold text-slate-400">
+            No Image
+          </div>
+        )}
 
         {/* Discount or Out of Stock Badge */}
         {isOutOfStock ? (
