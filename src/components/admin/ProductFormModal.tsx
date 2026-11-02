@@ -3044,7 +3044,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                     onChange={(e) => setPShippingEligible(e.target.checked)}
                     className="rounded text-[#08A9A2]"
                   />
-                  <span className="font-bold text-xs text-[#192E4D]">Express Shipping Eligible</span>
+                  <span className="font-bold text-xs text-[#192E4D]">Free Doorstep Delivery Eligible</span>
                 </label>
 
                 <label className="flex items-center gap-2 cursor-pointer">

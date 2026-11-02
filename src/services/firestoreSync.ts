@@ -951,14 +951,33 @@ export function subscribeToSubSubCategories(callback: (subsubs: SubSubCategory[]
 }
 
 /**
- * Listens in real time to homepage sections
+ * Filters out obsolete festival or regional hub delivery notices
  */
+export function isUnwantedNoticeSection(section: Partial<HomepageSection>): boolean {
+  const text = `${section.title || ''} ${section.subtitle || ''} ${section.htmlContent || ''} ${section.description || ''}`.toLowerCase();
+  return (
+    text.includes('festival delivery notice') ||
+    text.includes('same-day dispatch before 3:00 pm') ||
+    text.includes('palakkad, malappuram & ernakulam') ||
+    text.includes('prepaid google pay orders over ₹999')
+  );
+}
+
 export function subscribeToHomepageSections(callback: (sections: HomepageSection[]) => void): () => void {
   const colRef = collection(db, FIRESTORE_COLLECTIONS.HOMEPAGE_SECTIONS);
   return onSnapshot(
     colRef,
     (snapshot) => {
-      const list = snapshot.docs.map((d) => ({ ...(d.data() as HomepageSection), id: d.id }));
+      const list: HomepageSection[] = [];
+      for (const d of snapshot.docs) {
+        const item = { ...(d.data() as HomepageSection), id: d.id };
+        if (isUnwantedNoticeSection(item)) {
+          // Permanently purge outdated festival/hub delivery notice from Firestore
+          deleteDoc(doc(db, FIRESTORE_COLLECTIONS.HOMEPAGE_SECTIONS, d.id)).catch(() => {});
+        } else {
+          list.push(item);
+        }
+      }
       list.sort((a, b) => a.order - b.order);
       callback(list);
     },

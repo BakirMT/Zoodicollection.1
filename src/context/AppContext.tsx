@@ -83,6 +83,7 @@ import {
   LEGACY_DEMO_ORDER_IDS,
   seedFirestoreIfEmpty,
   normalizeProductFromFirestore,
+  isUnwantedNoticeSection,
   isProductVisibleToCustomer,
   getEffectiveProductPricing,
   getDeletedProductIds,
@@ -325,7 +326,13 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
 
   const [homepageSections, setHomepageSections] = useState<HomepageSection[]>(() => {
     const saved = localStorage.getItem('zoodi_homepage_sections');
-    return saved ? JSON.parse(saved) : INITIAL_HOMEPAGE_SECTIONS;
+    if (saved) {
+      try {
+        const parsed = JSON.parse(saved) as HomepageSection[];
+        return parsed.filter((s) => !isUnwantedNoticeSection(s));
+      } catch {}
+    }
+    return INITIAL_HOMEPAGE_SECTIONS.filter((s) => !isUnwantedNoticeSection(s));
   });
 
   const [homepageDraft, setHomepageDraft] = useState<HomepageSection[] | null>(() => {

@@ -1041,7 +1041,7 @@ export const INITIAL_HOMEPAGE_SECTIONS: HomepageSection[] = [
       {
         id: 'slide_1',
         image: 'https://images.unsplash.com/photo-1445205170230-053b83016050?auto=format&fit=crop&w=1200&q=80',
-        heading: 'Summer Festive Collection 2026',
+        heading: 'Summer Signature Collection 2026',
         subheading: 'Bold colors, premium silks & modern silhouettes',
         buttonText: 'Shop New In',
         buttonLink: 'prod_jacket_01',
@@ -1087,15 +1087,15 @@ export const INITIAL_HOMEPAGE_SECTIONS: HomepageSection[] = [
   },
   {
     id: 'sec_poster_banner',
-    title: 'Festive Season Special',
-    subtitle: 'Use code ZOODI10 for extra 10% off',
+    title: 'ZOODI Signature Drop',
+    subtitle: '100% Free Doorstep Delivery on Every Order',
     type: 'poster_banner',
     order: 4,
     isActive: true,
     bgColor: '#192E4D',
     textColor: '#FFFFFF',
     bannerImage: 'https://images.unsplash.com/photo-1483985988355-763728e1935b?auto=format&fit=crop&w=1200&q=80',
-    buttonLabel: 'Claim 10% Off Now',
+    buttonLabel: 'Shop Now',
     buttonLink: 'category/cat_fashion',
   },
   {
@@ -1227,7 +1227,7 @@ export const INITIAL_SUPPORT_TICKETS: SupportTicket[] = [
       },
       {
         sender: 'admin',
-        text: 'Hello Nihal! Yes, BlueDart Kerala courier agents typically place a verification phone call 30 minutes before arrival. Your parcel is on the local delivery van from Palakkad hub.',
+        text: 'Hello Nihal! Yes, BlueDart courier agents typically place a verification phone call 30 minutes before arrival. Your parcel is out for free delivery.',
         timestamp: '2026-10-19T06:45:00Z',
       },
     ],

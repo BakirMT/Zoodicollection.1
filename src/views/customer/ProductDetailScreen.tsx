@@ -616,7 +616,7 @@ export const ProductDetailScreen: React.FC = () => {
             <div className="flex items-center gap-3 text-xs text-[#192E4D]">
               <Truck className="w-4 h-4 text-[#08A9A2] shrink-0" />
               <span>
-                <strong>Express Delivery:</strong> Fast & secure doorstep delivery
+                <strong>Free Delivery:</strong> 100% Free doorstep delivery on every order
               </span>
             </div>
           )}

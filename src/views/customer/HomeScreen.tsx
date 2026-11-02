@@ -19,7 +19,7 @@ import {
   ShieldCheck,
 } from 'lucide-react';
 import { Product } from '../../types';
-import { isProductVisibleToCustomer } from '../../services/firestoreSync';
+import { isProductVisibleToCustomer, isUnwantedNoticeSection } from '../../services/firestoreSync';
 
 export const HomeScreen: React.FC = () => {
   const {
@@ -53,9 +53,9 @@ export const HomeScreen: React.FC = () => {
     return () => clearInterval(timer);
   }, []);
 
-  // Sorted active homepage sections
+  // Sorted active homepage sections, strictly filtering out any obsolete festival or delivery notices
   const activeSections = [...homepageSections]
-    .filter((s) => s.isActive)
+    .filter((s) => s.isActive && !isUnwantedNoticeSection(s))
     .sort((a, b) => a.order - b.order);
 
   // Filter products for the All Products section

@@ -15,35 +15,28 @@ test('formatINR formats currency in Indian Rupees with comma grouping', () => {
   assert.equal(formatINR(125000), '₹1,25,000');
 });
 
-test('calculateOrderPricing computes subtotal, shipping, tax and total correctly in INR', () => {
-  // Case 1: Below free shipping threshold (₹999) with default ₹99 shipping
+test('calculateOrderPricing computes subtotal, free shipping (₹0), tax and total correctly in INR', () => {
+  // Case 1: Order amount ₹500 has ₹0 shipping under all conditions
   const breakdown1 = calculateOrderPricing({
     subtotal: 500,
-    freeShippingThreshold: 999,
-    standardShippingFee: 99,
-    taxRate: 0.05,
   });
 
   assert.equal(breakdown1.subtotal, 500);
-  assert.equal(breakdown1.shipping, 99);
-  assert.equal(breakdown1.tax, 25.0); // 500 * 0.05
-  assert.equal(breakdown1.total, 624.0); // 500 + 99 + 25
+  assert.equal(breakdown1.shipping, 0); // Always 0: Free Delivery for all orders
   assert.equal(breakdown1.discount, 0);
+  assert.equal(breakdown1.total, 500.0); // Subtotal - discounts (no added shipping)
 
-  // Case 2: Above free shipping threshold with 10% coupon
+  // Case 2: Order with 10% coupon
   const breakdown2 = calculateOrderPricing({
     subtotal: 2000,
     couponDiscountPercentage: 10,
     couponMinOrder: 999,
-    freeShippingThreshold: 999,
-    taxRate: 0.05,
   });
 
   assert.equal(breakdown2.subtotal, 2000);
   assert.equal(breakdown2.discount, 200);
-  assert.equal(breakdown2.shipping, 0); // Free shipping in Kerala / India above ₹999
-  assert.equal(breakdown2.tax, 90.0); // (2000 - 200) * 0.05
-  assert.equal(breakdown2.total, 1890.0);
+  assert.equal(breakdown2.shipping, 0); // Free shipping across India
+  assert.equal(breakdown2.total, 1800.0); // 2000 - 200
   assert.equal(breakdown2.couponApplied, true);
 
   // Case 3: Coupon min order threshold not met (₹500 < ₹999)
@@ -53,6 +46,8 @@ test('calculateOrderPricing computes subtotal, shipping, tax and total correctly
     couponMinOrder: 999,
   });
   assert.equal(breakdown3.couponApplied, false);
+  assert.equal(breakdown3.shipping, 0);
+  assert.equal(breakdown3.total, 500.0);
   assert.match(breakdown3.couponError || '', /Minimum order amount of ₹999/);
 });
 
@@ -91,7 +86,7 @@ test('checkVariantStock checks stock for color and size combinations', () => {
   // Exceeds stock
   const res3 = checkVariantStock(13, sizeStock, 'S', 10);
   assert.equal(res3.isAvailable, false);
-  assert.match(res3.message || '', /Only 5 item/);
+  assert.match(res3.message || '', /Only 5 unit/);
 });
 
 test('hasAdminPermission validates roles and permissions correctly', () => {

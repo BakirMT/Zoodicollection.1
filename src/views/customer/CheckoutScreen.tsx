@@ -98,7 +98,6 @@ export const CheckoutScreen: React.FC = () => {
     couponDiscountFixed: activeCoupon?.discountFixed,
     couponMinOrder: activeCoupon?.minOrder,
     couponMaxDiscount: activeCoupon?.maxDiscount,
-    standardShippingFee: deliveryMethod === 'express' ? 149 : 0,
   });
 
   const upiIntentUrl = `upi://pay?pa=${connectedGpayVpa}&pn=${encodeURIComponent(
@@ -427,11 +426,16 @@ export const CheckoutScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* STEP 2: SHIPPING METHOD */}
+        {/* STEP 2: DOORSTEP DELIVERY (100% FREE) */}
         <div className="p-4 rounded-2xl bg-white border border-[#E6EAF0] space-y-2.5 shadow-2xs">
-          <div className="flex items-center gap-2 text-xs font-bold text-[#192E4D]">
-            <Truck className="w-4 h-4 text-[#FFB000]" />
-            <span>Delivery Speed</span>
+          <div className="flex items-center justify-between">
+            <div className="flex items-center gap-2 text-xs font-bold text-[#192E4D]">
+              <Truck className="w-4 h-4 text-[#08A9A2]" />
+              <span>Doorstep Delivery</span>
+            </div>
+            <span className="px-2 py-0.5 rounded-full bg-emerald-50 text-emerald-700 text-[10px] font-black uppercase tracking-wider">
+              100% FREE (₹0)
+            </span>
           </div>
 
           <div className="grid grid-cols-2 gap-2.5">
@@ -445,7 +449,7 @@ export const CheckoutScreen: React.FC = () => {
               }`}
             >
               <div className="flex justify-between items-center mb-1">
-                <span className="font-bold text-[#192E4D]">Standard</span>
+                <span className="font-bold text-[#192E4D]">Standard Delivery</span>
                 <span className="font-black text-emerald-700 tabular-nums">FREE</span>
               </div>
               <p className="text-[11px] text-[#697586]">Est. 2-3 business days</p>
@@ -461,10 +465,10 @@ export const CheckoutScreen: React.FC = () => {
               }`}
             >
               <div className="flex justify-between items-center mb-1">
-                <span className="font-bold text-[#192E4D]">Kerala 24h</span>
-                <span className="font-black text-[#192E4D] tabular-nums">₹149</span>
+                <span className="font-bold text-[#192E4D]">Express Courier</span>
+                <span className="font-black text-emerald-700 tabular-nums">FREE</span>
               </div>
-              <p className="text-[11px] text-[#697586]">Express Kerala delivery</p>
+              <p className="text-[11px] text-[#697586]">Priority dispatch</p>
             </button>
           </div>
         </div>
@@ -740,19 +744,11 @@ export const CheckoutScreen: React.FC = () => {
             </div>
           )}
           <div className="flex justify-between text-[#697586]">
-            <span>Shipping</span>
-            <span>
-              {pricing.shipping === 0 ? (
-                <strong className="text-emerald-700">FREE</strong>
-              ) : (
-                <span className="tabular-nums font-bold text-[#192E4D]">
-                  ₹{Math.round(pricing.shipping).toLocaleString('en-IN')}
-                </span>
-              )}
-            </span>
+            <span>Shipping & Delivery</span>
+            <span className="font-bold text-emerald-700">FREE (₹0)</span>
           </div>
           <div className="flex justify-between text-[#697586]">
-            <span>Estimated GST (5%)</span>
+            <span>Estimated GST (5% Inclusive)</span>
             <span className="font-bold text-[#192E4D] tabular-nums">
               ₹{Math.round(pricing.tax).toLocaleString('en-IN')}
             </span>

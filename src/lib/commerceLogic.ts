@@ -54,15 +54,15 @@ export function calculateOrderPricing(input: PricingInput): PricingBreakdown {
     }
   }
 
-  const freeShippingThreshold = input.freeShippingThreshold ?? 999;
-  const standardShipping = input.standardShippingFee ?? 99;
-  const shipping = subtotal >= freeShippingThreshold || subtotal === 0 ? 0 : standardShipping;
+  // Universal Free Delivery for All Orders: ₹0 shipping under all conditions
+  const shipping = 0;
 
-  const taxableAmount = Math.max(0, subtotal - discount);
-  const taxRate = input.taxRate ?? 0.05; // 5% GST
-  const tax = Math.round(taxableAmount * taxRate * 100) / 100;
+  const netAmount = Math.max(0, subtotal - discount);
+  // Standard Apparel GST is 5% (Inclusive in prices)
+  const tax = Math.round(((netAmount * 5) / 105) * 100) / 100;
 
-  const total = Math.round((taxableAmount + shipping + tax) * 100) / 100;
+  // Order Total = Subtotal - discounts (no added shipping)
+  const total = Math.round(netAmount * 100) / 100;
 
   return {
     subtotal,

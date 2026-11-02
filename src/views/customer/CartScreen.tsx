@@ -237,18 +237,12 @@ export const CartScreen: React.FC = () => {
           )}
 
           <div className="flex justify-between text-[#697586]">
-            <span>Shipping (Kerala & All-India)</span>
-            <span>
-              {pricing.shipping === 0 ? (
-                <strong className="text-emerald-700 font-bold">FREE</strong>
-              ) : (
-                <span className="tabular-nums font-bold text-[#192E4D]">₹{Math.round(pricing.shipping).toLocaleString('en-IN')}</span>
-              )}
-            </span>
+            <span>Shipping & Delivery</span>
+            <span className="font-bold text-emerald-700">FREE (₹0)</span>
           </div>
 
           <div className="flex justify-between text-[#697586]">
-            <span>Estimated GST (5%)</span>
+            <span>Estimated GST (5% Inclusive)</span>
             <span className="font-bold text-[#192E4D] tabular-nums">₹{Math.round(pricing.tax).toLocaleString('en-IN')}</span>
           </div>
 

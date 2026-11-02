@@ -617,15 +617,15 @@ export function createDefaultSectionConfig(type: HomepageSectionType, order: num
     case 'custom_html':
       return {
         id: baseId,
-        title: 'Welcome to ZOODI Kerala Storefront',
-        subtitle: 'Express delivery from Mannarkkad, Palakkad to across India',
+        title: 'Welcome to ZOODI Collection',
+        subtitle: '100% Free Doorstep Delivery across India',
         type: 'custom_html',
         order,
         isActive: true,
         status: 'active',
-        htmlContent: `<div class="p-4 rounded-2xl bg-amber-50 border border-amber-200 text-[#192E4D]">
-  <h4 class="font-extrabold text-sm mb-1 text-amber-900">✨ Festival Delivery Notice</h4>
-  <p class="text-xs text-amber-800">Same-day dispatch available for all orders placed before 3:00 PM IST across Palakkad, Malappuram & Ernakulam hubs. Free shipping on prepaid Google Pay orders over ₹999.</p>
+        htmlContent: `<div class="p-4 rounded-2xl bg-teal-50 border border-teal-200 text-[#192E4D]">
+  <h4 class="font-extrabold text-sm mb-1 text-[#192E4D]">✨ 100% Free Doorstep Delivery</h4>
+  <p class="text-xs text-slate-700">Every product and order includes free delivery across India with zero minimum purchase requirement.</p>
 </div>`,
         createdAt: now,
         updatedAt: now,

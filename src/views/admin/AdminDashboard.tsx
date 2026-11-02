@@ -1479,8 +1479,8 @@ export const AdminDashboard: React.FC = () => {
                       <span className="font-bold text-[#192E4D]">5% (Inclusive)</span>
                     </div>
                     <div className="flex justify-between py-1.5">
-                      <span className="text-[#697586]">Free Delivery Threshold</span>
-                      <span className="font-bold text-emerald-700">Orders above ₹999</span>
+                      <span className="text-[#697586]">Free Delivery Policy</span>
+                      <span className="font-bold text-emerald-700">100% Free on All Orders (₹0)</span>
                     </div>
                   </div>
                 </div>
