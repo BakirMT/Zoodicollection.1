@@ -55,6 +55,8 @@ import {
   dbSaveHomepageDraft,
   dbLoadHomepageDraft,
 } from '../lib/database';
+import { auth } from '../lib/firebase';
+import { signOut } from 'firebase/auth';
 import {
   subscribeToProducts,
   subscribeToMainCategories,
@@ -195,7 +197,7 @@ interface AppContextType {
   setIsAccessRestricted: (restricted: boolean) => void;
   blockedAttemptEmail: string | null;
   setBlockedAttemptEmail: (email: string | null) => void;
-  adminLoginWithGoogle: (email?: string, name?: string, avatar?: string) => { success: boolean; error?: string };
+  adminLoginWithGoogle: (email?: string, name?: string, avatar?: string, idToken?: string) => { success: boolean; error?: string };
   adminLogin: (email: string, pass: string) => { success: boolean; error?: string };
   adminLogout: () => void;
   auditLogs: AuditLog[];
@@ -1664,20 +1666,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const adminLoginWithGoogle = (
     email?: string,
     name?: string,
-    avatar?: string
+    avatar?: string,
+    idToken?: string
   ): { success: boolean; error?: string } => {
     const rawEmail = (email || '').trim().toLowerCase();
     if (rawEmail !== 'zoodicollection@gmail.com') {
       const blocked = rawEmail || 'unknown@domain.com';
       setBlockedAttemptEmail(blocked);
-      setIsAccessRestricted(true);
       recordAudit(
         'ADMIN_UNAUTHORIZED_ATTEMPT',
         `Blocked unauthorized admin login attempt from Google account: ${blocked}`
       );
       return {
         success: false,
-        error: `Access Denied: Only authorized account zoodicollection@gmail.com can access the ZOODI Admin Portal. Account "${blocked}" is strictly restricted.`,
+        error: 'Access Denied! This Google account is not authorized to access the Super Admin panel.',
       };
     }
 
@@ -1701,6 +1703,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setCurrentAdmin(singleAdmin);
     try {
       localStorage.setItem('zoodi_active_admin', JSON.stringify(singleAdmin));
+      if (idToken) {
+        localStorage.setItem('zoodi_admin_id_token', idToken);
+      }
     } catch {
       // ignore
     }
@@ -1714,7 +1719,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBlockedAttemptEmail('email-password-attempt');
     return {
       success: false,
-      error: 'Email and password authentication has been removed. Please use "Continue with Google (zoodicollection@gmail.com)".',
+      error: 'Access Denied! Only Google Sign-In with zoodicollection@gmail.com is authorized.',
     };
   };
 
@@ -1727,9 +1732,11 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     setBlockedAttemptEmail(null);
     try {
       localStorage.removeItem('zoodi_active_admin');
+      localStorage.removeItem('zoodi_admin_id_token');
     } catch {
       // ignore
     }
+    signOut(auth).catch(() => {});
   };
 
   // Admin catalog actions

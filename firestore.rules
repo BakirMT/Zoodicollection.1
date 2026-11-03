@@ -8,13 +8,9 @@ service cloud.firestore {
     }
     
     function isAdmin() {
-      return isAuthenticated() && (
-        request.auth.token.email == 'zoodicollection@gmail.com' ||
-        request.auth.token.role == 'admin' ||
-        request.auth.token.role == 'super_admin' ||
-        (exists(/databases/$(database)/documents/admin_profiles/$(request.auth.uid)) &&
-         get(/databases/$(database)/documents/admin_profiles/$(request.auth.uid)).data.isActive == true)
-      );
+      return isAuthenticated() &&
+        request.auth.token.email.lower() == 'zoodicollection@gmail.com' &&
+        request.auth.token.email_verified == true;
     }
     
     function isOwner(userId) {
