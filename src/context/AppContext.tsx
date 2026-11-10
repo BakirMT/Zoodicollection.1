@@ -165,6 +165,7 @@ interface AppContextType {
   updateCartQuantity: (cartItemId: string, newQty: number) => void;
   applyCouponCode: (code: string) => boolean;
   removeCoupon: () => void;
+  addToWishlist: (productId: string) => void;
   toggleWishlist: (productId: string) => void;
 
   // Google Pay (GPay) Settlement Integration
@@ -500,7 +501,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     return [];
   });
 
-  const [wishlistIds, setWishlistIds] = useState<string[]>(['prod_sneaker_02', 'prod_dress_03']);
+  // Initialize wishlist counter at 0 (empty array by default; never pre-populate demo items)
+  const [wishlistIds, setWishlistIds] = useState<string[]>([]);
 
   const [orders, setOrders] = useState<Order[]>(() => {
     try {
@@ -1313,6 +1315,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
   const removeCoupon = () => {
     setActiveCoupon(null);
     setCouponError(null);
+  };
+
+  const addToWishlist = (productId: string) => {
+    setWishlistIds((prev) => (prev.includes(productId) ? prev : [...prev, productId]));
   };
 
   const toggleWishlist = (productId: string) => {
@@ -2551,6 +2557,7 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         updateCartQuantity,
         applyCouponCode,
         removeCoupon,
+        addToWishlist,
         toggleWishlist,
         placeOrder,
         addReview,

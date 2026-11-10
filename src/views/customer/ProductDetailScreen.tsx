@@ -825,11 +825,26 @@ export const ProductDetailScreen: React.FC = () => {
       </div>
 
       {/* FIXED BOTTOM ACTION BAR: Standard 48px height buttons */}
-      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto z-40 bg-white/95 backdrop-blur-md border-t border-[#E6EAF0] px-4 py-3 flex items-center gap-3 shadow-[0_-4px_20px_rgba(25,46,77,0.08)]">
+      <div className="fixed bottom-0 left-0 right-0 max-w-md mx-auto z-40 bg-white/95 backdrop-blur-md border-t border-[#E6EAF0] px-4 py-3 flex items-center gap-2.5 shadow-[0_-4px_20px_rgba(25,46,77,0.08)]">
+        <button
+          type="button"
+          aria-label={isWishlisted ? 'Remove from Wishlist' : 'Add to Wishlist'}
+          onClick={() => toggleWishlist(product.id)}
+          className={`h-12 px-3 rounded-xl border-2 font-bold text-xs flex items-center justify-center gap-1.5 transition-all active:scale-[0.98] cursor-pointer shrink-0 ${
+            isWishlisted
+              ? 'border-[#F20D58] bg-[#F20D58] text-white shadow-xs'
+              : 'border-[#E6EAF0] bg-white text-[#192E4D] hover:border-[#F20D58] hover:text-[#F20D58]'
+          }`}
+          title={isWishlisted ? 'Saved in Wishlist' : 'Add to Wishlist'}
+        >
+          <Heart className="w-4 h-4 shrink-0" fill={isWishlisted ? 'currentColor' : 'none'} />
+          <span className="hidden xs:inline">{isWishlisted ? 'Wishlisted' : 'Add to Wishlist'}</span>
+        </button>
+
         <button
           type="button"
           onClick={handleAddToCart}
-          className="flex-1 h-12 px-4 rounded-xl border-2 border-[#08A9A2] text-[#08A9A2] hover:bg-[#08A9A2]/10 active:scale-[0.98] font-bold text-xs sm:text-sm flex items-center justify-center transition-all cursor-pointer"
+          className="flex-1 h-12 px-3 rounded-xl border-2 border-[#08A9A2] text-[#08A9A2] hover:bg-[#08A9A2]/10 active:scale-[0.98] font-bold text-xs sm:text-sm flex items-center justify-center transition-all cursor-pointer"
         >
           Add to Cart
         </button>
@@ -837,7 +852,7 @@ export const ProductDetailScreen: React.FC = () => {
         <button
           type="button"
           onClick={handleBuyNow}
-          className="flex-1 h-12 px-4 rounded-xl bg-[#F56645] hover:bg-[#de5535] active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center shadow-md transition-all cursor-pointer"
+          className="flex-1 h-12 px-3 rounded-xl bg-[#F56645] hover:bg-[#de5535] active:scale-[0.98] text-white font-extrabold text-xs sm:text-sm flex items-center justify-center shadow-md transition-all cursor-pointer"
         >
           Buy Now
         </button>

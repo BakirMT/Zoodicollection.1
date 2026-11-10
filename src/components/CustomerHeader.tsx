@@ -1,11 +1,10 @@
 import React from 'react';
 import { useApp } from '../context/AppContext';
 import { ZoodiLogo } from './ZoodiLogo';
+import { WishlistHeartBadge } from './WishlistHeartBadge';
 import {
   Search,
-  Heart,
   Bell,
-  ShieldCheck,
   Sparkles,
   User,
 } from 'lucide-react';
@@ -77,26 +76,15 @@ export const CustomerHeader: React.FC = () => {
             <Search className="w-5 h-5 hover:text-[#08A9A2] transition-colors" />
           </button>
 
-          {/* Wishlist Shortcut */}
-          <button
-            type="button"
-            aria-label={`Wishlist, ${wishlistIds.length} items saved`}
+          {/* Wishlist Shortcut with Red Circle Notification Badge */}
+          <WishlistHeartBadge
+            count={wishlistIds.length}
+            active={customerTab === 'wishlist'}
             onClick={() => {
               setCustomerTab('wishlist');
               setActiveScreen('tab');
             }}
-            className="relative w-10 h-10 rounded-xl flex items-center justify-center text-[#192E4D] hover:bg-[#F6F8FA] active:bg-[#E6EAF0] transition-colors focus-visible:ring-2 focus-visible:ring-[#08A9A2] focus:outline-hidden group"
-            title="Wishlist"
-          >
-            <div className="relative">
-              <Heart className="w-5 h-5 group-hover:text-[#F20D58] transition-colors" />
-              {wishlistIds.length > 0 && (
-                <span className="absolute -top-1.5 -right-2 min-w-[18px] h-[18px] px-1 rounded-full bg-[#F20D58] text-white text-[10px] font-black flex items-center justify-center shadow-xs">
-                  {wishlistIds.length}
-                </span>
-              )}
-            </div>
-          </button>
+          />
 
           {/* Notification Center Shortcut */}
           <button
