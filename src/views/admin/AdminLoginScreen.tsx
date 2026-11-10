@@ -5,64 +5,74 @@ import { auth } from '../../lib/firebase';
 import { GoogleAuthProvider, signInWithPopup, signOut } from 'firebase/auth';
 import {
   ShieldAlert,
-  ArrowLeft,
   Lock,
   ShieldCheck,
   CheckCircle2,
-  AlertOctagon,
   Sparkles,
 } from 'lucide-react';
 
 export const AdminLoginScreen: React.FC = () => {
-  const { adminLoginWithGoogle, navigateTo, setCustomerTab, setActiveScreen } = useApp();
+  const { adminLoginWithGoogle } = useApp();
 
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [successNotice, setSuccessNotice] = useState<string | null>(null);
   const [isSubmitting, setIsSubmitting] = useState(false);
 
-  // Authorized Admin Google Account
+  // Authorized Super Admin Google Account
   const AUTHORIZED_ADMIN_EMAIL = 'zoodicollection@gmail.com';
 
   const handleContinueWithGoogle = async () => {
+    if (isSubmitting) return;
+
     setErrorMsg(null);
     setSuccessNotice(null);
-    setIsSubmitting(true);
 
     try {
-      // 1. Firebase Authentication with Google Auth Provider
+      // Configure Google OAuth provider to always display the real Google Account Chooser
       const provider = new GoogleAuthProvider();
-      provider.setCustomParameters({ prompt: 'select_account' });
+      provider.addScope('email');
+      provider.addScope('profile');
+      provider.setCustomParameters({
+        prompt: 'select_account',
+      });
 
-      let credential;
-      try {
-        credential = await signInWithPopup(auth, provider);
-      } catch (authError: any) {
-        console.warn('[AdminLogin] Firebase popup warning:', authError?.code, authError?.message);
-
-        setIsSubmitting(false);
-        if (authError?.code === 'auth/popup-closed-by-user' || authError?.code === 'auth/cancelled-popup-request') {
-          return;
-        }
-        if (authError?.code === 'auth/popup-blocked') {
-          setErrorMsg('Google Sign-In popup was blocked by browser. Please allow popups for this site and try again.');
-          return;
-        }
-        setErrorMsg('Authentication error occurred. Please try again with zoodicollection@gmail.com.');
-        return;
-      }
+      // Trigger the official Google OAuth Account Selection popup immediately on user click
+      const credential = await signInWithPopup(auth, provider);
+      setIsSubmitting(true);
 
       const user = credential.user;
       const emailReceived = (user.email || '').toLowerCase().trim();
+      const displayName = user.displayName || 'ZOODI Super Admin';
+      const photoURL = user.photoURL || undefined;
       const isEmailVerified = Boolean(user.emailVerified);
+      const idToken = await user.getIdToken(true);
 
-      // 2. Strict Client-side Verification Gate
-      if (emailReceived !== AUTHORIZED_ADMIN_EMAIL) {
+      // 1. Verify token and email on the backend via Firebase Admin SDK
+      const verifyResponse = await fetch('/api/admin/verify-token', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          Authorization: `Bearer ${idToken}`,
+        },
+        body: JSON.stringify({ idToken }),
+      });
+
+      const verifyData = await verifyResponse.json().catch(() => ({}));
+
+      if (!verifyResponse.ok || !verifyData.authorized) {
         await signOut(auth).catch(() => {});
-        setErrorMsg('Access Denied! This Google account is not authorized to access the Super Admin panel.');
+        adminLoginWithGoogle(emailReceived || 'unauthorized@gmail.com', displayName);
+        setErrorMsg(
+          verifyData.error ||
+            (!isEmailVerified
+              ? 'Access Denied! Email address is not verified.'
+              : 'Access Denied! This Google account is not authorized to access the Super Admin panel.')
+        );
         setIsSubmitting(false);
         return;
       }
 
+      // 2. Verify email_verified === true
       if (!isEmailVerified) {
         await signOut(auth).catch(() => {});
         setErrorMsg('Access Denied! Email address is not verified.');
@@ -70,147 +80,51 @@ export const AdminLoginScreen: React.FC = () => {
         return;
       }
 
-      // 3. Strict Server-side Verification via Firebase Admin SDK
-      const idToken = await user.getIdToken();
-      try {
-        const verifyResponse = await fetch('/api/admin/verify-token', {
-          method: 'POST',
-          headers: {
-            'Content-Type': 'application/json',
-            Authorization: `Bearer ${idToken}`,
-          },
-          body: JSON.stringify({ idToken }),
-        });
-
-        if (!verifyResponse.ok) {
-          const errorPayload = await verifyResponse.json().catch(() => ({}));
-          await signOut(auth).catch(() => {});
-          setErrorMsg(
-            errorPayload.error ||
-              'Access Denied! This Google account is not authorized to access the Super Admin panel.'
-          );
-          setIsSubmitting(false);
-          return;
-        }
-
-        const verifyData = await verifyResponse.json();
-        if (!verifyData.authorized || verifyData.email !== AUTHORIZED_ADMIN_EMAIL) {
-          await signOut(auth).catch(() => {});
-          setErrorMsg('Access Denied! This Google account is not authorized to access the Super Admin panel.');
-          setIsSubmitting(false);
-          return;
-        }
-      } catch (fetchError) {
-        console.warn('[AdminLogin] Backend verify notice (offline fallback):', fetchError);
+      // 3. Strictly enforce zoodicollection@gmail.com
+      if (emailReceived !== AUTHORIZED_ADMIN_EMAIL) {
+        await signOut(auth).catch(() => {});
+        adminLoginWithGoogle(emailReceived, displayName);
+        setErrorMsg(
+          'Access Denied! This Google account is not authorized to access the Super Admin panel.'
+        );
+        setIsSubmitting(false);
+        return;
       }
 
-      // 4. Authorized Super Admin Confirmed
-      setSuccessNotice(`Authentication verified for ${AUTHORIZED_ADMIN_EMAIL}. Launching admin console...`);
+      // 4. Authorized Super Admin confirmed
+      setSuccessNotice(
+        `Authentication verified for ${AUTHORIZED_ADMIN_EMAIL}. Launching admin console...`
+      );
       setTimeout(() => {
-        adminLoginWithGoogle(AUTHORIZED_ADMIN_EMAIL, user.displayName || 'ZOODI Super Admin', user.photoURL || undefined, idToken);
+        adminLoginWithGoogle(AUTHORIZED_ADMIN_EMAIL, displayName, photoURL, idToken);
         setIsSubmitting(false);
-      }, 400);
-    } catch (err: any) {
-      console.error('[AdminLogin] Authentication failure:', err);
+      }, 300);
+    } catch (authError: any) {
+      setIsSubmitting(false);
       await signOut(auth).catch(() => {});
-      setErrorMsg('Authentication error occurred. Please try again.');
-      setIsSubmitting(false);
-    }
-  };
 
-  // Test utility 1: Test unauthorized account rejection (HTTP 403)
-  const handleTestUnauthorized = async () => {
-    setErrorMsg(null);
-    setSuccessNotice(null);
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch('/api/admin/verify-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          isSimulatedTest: true,
-          testEmail: 'unauthorized.user@gmail.com',
-          isVerified: true,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      setIsSubmitting(false);
-
-      if (res.status === 403 || !res.ok) {
-        setErrorMsg(data.error || 'Access Denied! This Google account is not authorized to access the Super Admin panel.');
-      } else {
-        setErrorMsg('Security anomaly: Unauthorized account was not blocked!');
+      const code = authError?.code || '';
+      if (code === 'auth/popup-closed-by-user' || code === 'auth/cancelled-popup-request') {
+        return;
       }
-    } catch {
-      setIsSubmitting(false);
-      setErrorMsg('Access Denied! This Google account is not authorized to access the Super Admin panel.');
-    }
-  };
 
-  // Test utility 2: Test unverified email rejection (HTTP 403)
-  const handleTestUnverified = async () => {
-    setErrorMsg(null);
-    setSuccessNotice(null);
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch('/api/admin/verify-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          isSimulatedTest: true,
-          testEmail: AUTHORIZED_ADMIN_EMAIL,
-          isVerified: false,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      setIsSubmitting(false);
-
-      if (res.status === 403 || !res.ok) {
-        setErrorMsg(data.error || 'Access Denied! Email address is not verified.');
-      } else {
-        setErrorMsg('Security anomaly: Unverified account was not blocked!');
+      if (code === 'auth/popup-blocked') {
+        setErrorMsg(
+          'Google Sign-In popup was blocked by your browser. Please allow popups for this site and click "Continue with Google" again.'
+        );
+        return;
       }
-    } catch {
-      setIsSubmitting(false);
-      setErrorMsg('Access Denied! Email address is not verified.');
-    }
-  };
 
-  // Test utility 3: Test authorized login verification
-  const handleTestAuthorized = async () => {
-    setErrorMsg(null);
-    setSuccessNotice(null);
-    setIsSubmitting(true);
-
-    try {
-      const res = await fetch('/api/admin/verify-token', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({
-          isSimulatedTest: true,
-          testEmail: AUTHORIZED_ADMIN_EMAIL,
-          isVerified: true,
-        }),
-      });
-
-      const data = await res.json().catch(() => ({}));
-      if (res.ok && data.authorized) {
-        setSuccessNotice(`Backend verified: 200 OK for ${AUTHORIZED_ADMIN_EMAIL}. Launching dashboard...`);
-        setTimeout(() => {
-          adminLoginWithGoogle(AUTHORIZED_ADMIN_EMAIL, 'ZOODI Super Admin');
-          setIsSubmitting(false);
-        }, 500);
-      } else {
-        setIsSubmitting(false);
-        setErrorMsg(data.error || 'Verification failed.');
+      if (code === 'auth/unauthorized-domain') {
+        setErrorMsg(
+          `This domain (${window.location.hostname}) is not yet added to Firebase Authorized Domains. Please add it in Firebase Console → Authentication → Settings → Authorized domains.`
+        );
+        return;
       }
-    } catch {
-      setIsSubmitting(false);
-      adminLoginWithGoogle(AUTHORIZED_ADMIN_EMAIL, 'ZOODI Super Admin');
+
+      setErrorMsg(
+        authError?.message || 'Google Sign-In could not be completed. Please try again.'
+      );
     }
   };
 
@@ -315,47 +229,6 @@ export const AdminLoginScreen: React.FC = () => {
 
             <p className="text-[11px] text-center text-slate-300">
               Sign in with <strong className="text-white">zoodicollection@gmail.com</strong>
-            </p>
-          </div>
-
-          {/* Verification Testing Suite for Security Compliance */}
-          <div className="pt-4 border-t border-slate-700/60 space-y-2">
-            <span className="text-[10px] uppercase font-bold text-slate-300 tracking-wider block text-center">
-              Security Test Suite
-            </span>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={handleTestUnauthorized}
-                className="w-full h-8 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-rose-300 hover:text-rose-200 border border-rose-500/30 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              >
-                <AlertOctagon className="w-3 h-3" />
-                <span>Test Other Account (403)</span>
-              </button>
-
-              <button
-                type="button"
-                disabled={isSubmitting}
-                onClick={handleTestUnverified}
-                className="w-full h-8 rounded-lg bg-slate-800/80 hover:bg-slate-800 text-amber-300 hover:text-amber-200 border border-amber-500/30 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-              >
-                <AlertOctagon className="w-3 h-3" />
-                <span>Test Unverified (403)</span>
-              </button>
-            </div>
-
-            <button
-              type="button"
-              disabled={isSubmitting}
-              onClick={handleTestAuthorized}
-              className="w-full h-8 rounded-lg bg-teal-950/70 hover:bg-teal-900/80 text-teal-300 hover:text-teal-200 border border-teal-500/40 text-[11px] font-semibold flex items-center justify-center gap-1.5 transition-all cursor-pointer"
-            >
-              <CheckCircle2 className="w-3 h-3 text-teal-400" />
-              <span>Verify Authorized Login (200 OK)</span>
-            </button>
-            <p className="text-[10px] text-slate-400 text-center leading-normal">
-              Directly tests server-side Firebase verification and confirms strict single-account 403 denial.
             </p>
           </div>
 

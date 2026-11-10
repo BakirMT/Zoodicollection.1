@@ -104,41 +104,6 @@ app.post('/api/admin/verify-token', async (req: Request, res: Response) => {
   const tokenFromBody = req.body?.idToken;
   const idToken = tokenFromHeader || tokenFromBody;
 
-  // Handle direct verification test simulation payload
-  if (req.body?.isSimulatedTest) {
-    const testEmail = (req.body.testEmail || '').toLowerCase().trim();
-    const testVerified = req.body.isVerified !== false;
-
-    if (testEmail !== AUTHORIZED_SUPER_ADMIN_EMAIL) {
-      return res.status(403).json({
-        success: false,
-        authorized: false,
-        error: 'Access Denied! This Google account is not authorized to access the Super Admin panel.',
-        code: 'FORBIDDEN_UNAUTHORIZED_ACCOUNT',
-        attemptedEmail: testEmail,
-      });
-    }
-
-    if (!testVerified) {
-      return res.status(403).json({
-        success: false,
-        authorized: false,
-        error: 'Access Denied! Email address is not verified.',
-        code: 'FORBIDDEN_UNVERIFIED_EMAIL',
-        attemptedEmail: testEmail,
-      });
-    }
-
-    return res.status(200).json({
-      success: true,
-      authorized: true,
-      email: AUTHORIZED_SUPER_ADMIN_EMAIL,
-      role: 'super_admin',
-      name: 'ZOODI Super Admin',
-      message: 'Authorized Super Admin credentials verified successfully.',
-    });
-  }
-
   if (!idToken) {
     return res.status(401).json({
       success: false,

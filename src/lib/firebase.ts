@@ -6,14 +6,14 @@ import { getMessaging, getToken, onMessage, isSupported, type Messaging } from '
 import configJson from '../../firebase-applet-config.json';
 
 // Firebase Web App Client Configuration
-// Reads from Vite client environment variables or the provisioned applet configuration
+// Uses the provisioned firebase-applet-config.json as the source of truth
 export const firebaseConfig = {
-  apiKey: import.meta.env.VITE_FIREBASE_API_KEY || configJson.apiKey,
-  authDomain: import.meta.env.VITE_FIREBASE_AUTH_DOMAIN || configJson.authDomain,
-  projectId: import.meta.env.VITE_FIREBASE_PROJECT_ID || configJson.projectId,
-  storageBucket: import.meta.env.VITE_FIREBASE_STORAGE_BUCKET || configJson.storageBucket,
-  messagingSenderId: import.meta.env.VITE_FIREBASE_MESSAGING_SENDER_ID || configJson.messagingSenderId,
-  appId: import.meta.env.VITE_FIREBASE_APP_ID || configJson.appId,
+  apiKey: configJson.apiKey,
+  authDomain: configJson.authDomain,
+  projectId: configJson.projectId,
+  storageBucket: configJson.storageBucket,
+  messagingSenderId: configJson.messagingSenderId,
+  appId: configJson.appId,
   firestoreDatabaseId: configJson.firestoreDatabaseId || '(default)',
 };
 

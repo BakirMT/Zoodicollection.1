@@ -35,10 +35,13 @@ import {
   ArrowUp,
   ArrowDown,
   Palette,
+  Pencil,
   Image as ImageIcon,
 } from 'lucide-react';
 
-const PRESET_COLORS = [
+const PRESET_COLORS_STORAGE_KEY = 'zoodi_preset_product_colors_v1';
+
+const DEFAULT_PRESET_COLORS: Array<{ name: string; hex: string }> = [
   { name: 'Jet Black', hex: '#000000' },
   { name: 'Pure White', hex: '#FFFFFF' },
   { name: 'Navy Blue', hex: '#192E4D' },
@@ -56,6 +59,28 @@ const PRESET_COLORS = [
   { name: 'Sand Beige', hex: '#D4B996' },
   { name: 'Charcoal Grey', hex: '#4B5563' },
 ];
+
+function loadSavedPresetColors(): Array<{ name: string; hex: string }> {
+  try {
+    const raw = localStorage.getItem(PRESET_COLORS_STORAGE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw);
+      if (Array.isArray(parsed) && parsed.length > 0) {
+        return parsed.filter(
+          (item) =>
+            item &&
+            typeof item.name === 'string' &&
+            item.name.trim() !== '' &&
+            typeof item.hex === 'string' &&
+            item.hex.trim() !== ''
+        );
+      }
+    }
+  } catch {
+    // Fallback to default presets
+  }
+  return DEFAULT_PRESET_COLORS;
+}
 
 interface ProductFormModalProps {
   isOpen: boolean;
@@ -115,11 +140,27 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   // SECTION 4: PRODUCT COLORS (Independent section, NOT linked to images)
   const [pColors, setPColors] = useState<ProductColor[]>([]);
+  const [presetColors, setPresetColors] = useState<Array<{ name: string; hex: string }>>(() =>
+    loadSavedPresetColors()
+  );
+  const [editingPresetIndex, setEditingPresetIndex] = useState<number | null>(null);
+  const [presetEditName, setPresetEditName] = useState('');
+  const [presetEditHex, setPresetEditHex] = useState('#000000');
+  const [presetEditError, setPresetEditError] = useState<string | null>(null);
   const [showColorModal, setShowColorModal] = useState(false);
   const [editingColorIndex, setEditingColorIndex] = useState<number | null>(null);
   const [cNameInput, setCNameInput] = useState('');
   const [cHexInput, setCHexInput] = useState('#192E4D');
   const [colorModalError, setColorModalError] = useState<string | null>(null);
+
+  const savePresetColorsList = (nextPresets: Array<{ name: string; hex: string }>) => {
+    setPresetColors(nextPresets);
+    try {
+      localStorage.setItem(PRESET_COLORS_STORAGE_KEY, JSON.stringify(nextPresets));
+    } catch {
+      // Ignore storage quota errors
+    }
+  };
 
   // SECTION 5: SIZES & COMBINATION INVENTORY
   const [variantType, setVariantType] = useState<VariantOptionType>('clothing_sizes');
@@ -208,6 +249,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
     // Section 4: Blank decoupled product colors
     setPColors([]);
+    setEditingPresetIndex(null);
+    setPresetEditError(null);
     setShowColorModal(false);
     setEditingColorIndex(null);
     setCNameInput('');
@@ -356,6 +399,31 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         });
       }
       setPColors(loadedColors);
+      if (loadedColors.length > 0) {
+        setPresetColors((prev) => {
+          const merged = [...prev];
+          let changed = false;
+          loadedColors.forEach((lc) => {
+            const exists = merged.some(
+              (p) => p.name.trim().toLowerCase() === lc.name.trim().toLowerCase()
+            );
+            if (!exists) {
+              merged.push({ name: lc.name.trim(), hex: lc.hex || '#192E4D' });
+              changed = true;
+            }
+          });
+          if (changed) {
+            try {
+              localStorage.setItem(PRESET_COLORS_STORAGE_KEY, JSON.stringify(merged));
+            } catch {
+              // ignore
+            }
+          }
+          return changed ? merged : prev;
+        });
+      }
+      setEditingPresetIndex(null);
+      setPresetEditError(null);
       setShowColorModal(false);
       setEditingColorIndex(null);
       setCNameInput('');
@@ -975,11 +1043,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       });
     }
 
+    const normalizedHex = (cHexInput || '#192E4D').trim().toUpperCase();
     const newColorRecord: ProductColor = {
       id: colorId,
       name: trimmed,
-      hex: cHexInput,
+      hex: normalizedHex,
     };
+
+    const previousColorName =
+      editingColorIndex !== null ? pColors[editingColorIndex]?.name : null;
 
     if (editingColorIndex !== null) {
       const next = [...pColors];
@@ -989,7 +1061,86 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setPColors([...pColors, newColorRecord]);
     }
 
+    // Automatically add or update this color in "Click to Quick-Add Preset Product Colors"
+    const existingPresetIdx = presetColors.findIndex(
+      (p) =>
+        p.name.trim().toLowerCase() === trimmed.toLowerCase() ||
+        (previousColorName &&
+          p.name.trim().toLowerCase() === previousColorName.trim().toLowerCase())
+    );
+    if (existingPresetIdx !== -1) {
+      const updatedPresets = [...presetColors];
+      updatedPresets[existingPresetIdx] = { name: trimmed, hex: normalizedHex };
+      savePresetColorsList(updatedPresets);
+    } else {
+      savePresetColorsList([...presetColors, { name: trimmed, hex: normalizedHex }]);
+    }
+
     setShowColorModal(false);
+  };
+
+  // Preset Color Inline Editing Handlers
+  const openEditPresetColor = (idx: number) => {
+    const target = presetColors[idx];
+    if (!target) return;
+    setEditingPresetIndex(idx);
+    setPresetEditName(target.name);
+    setPresetEditHex(target.hex || '#000000');
+    setPresetEditError(null);
+  };
+
+  const handleSavePresetColorEdit = () => {
+    if (editingPresetIndex === null) return;
+    const oldPreset = presetColors[editingPresetIndex];
+    if (!oldPreset) return;
+
+    const trimmedName = presetEditName.trim();
+    if (!trimmedName) {
+      setPresetEditError('Please enter a valid color name.');
+      return;
+    }
+
+    const rawHex = presetEditHex.trim();
+    const formattedHex = (rawHex.startsWith('#') ? rawHex : `#${rawHex}`).toUpperCase();
+    if (!/^#[0-9A-F]{3,8}$/i.test(formattedHex)) {
+      setPresetEditError('Please enter a valid hex color code (e.g. #000000).');
+      return;
+    }
+
+    const duplicatePreset = presetColors.some(
+      (p, idx) =>
+        idx !== editingPresetIndex &&
+        p.name.trim().toLowerCase() === trimmedName.toLowerCase()
+    );
+    if (duplicatePreset) {
+      setPresetEditError(`Another preset color named "${trimmedName}" already exists.`);
+      return;
+    }
+
+    const nextPresets = [...presetColors];
+    nextPresets[editingPresetIndex] = { name: trimmedName, hex: formattedHex };
+    savePresetColorsList(nextPresets);
+
+    // Sync any matching color already added to this product's Configured Colors
+    setPColors((prevColors) =>
+      prevColors.map((c) =>
+        c.name.trim().toLowerCase() === oldPreset.name.trim().toLowerCase()
+          ? { ...c, name: trimmedName, hex: formattedHex }
+          : c
+      )
+    );
+
+    setEditingPresetIndex(null);
+    setPresetEditError(null);
+  };
+
+  const handleDeletePresetColor = (idx: number) => {
+    const nextPresets = presetColors.filter((_, i) => i !== idx);
+    savePresetColorsList(nextPresets);
+    if (editingPresetIndex === idx) {
+      setEditingPresetIndex(null);
+      setPresetEditError(null);
+    }
   };
 
   const handleDeleteColor = (idx: number) => {
@@ -2084,43 +2235,174 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               )}
 
               {/* Quick Preset Colors Picker */}
-              <div className="p-3.5 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2">
-                <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
-                  Click to Quick-Add Preset Product Colors
-                </span>
+              <div className="p-3.5 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-3">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <span className="text-[11px] font-extrabold uppercase tracking-wider text-slate-500 block">
+                    Click to Quick-Add Preset Product Colors
+                  </span>
+                  <span className="text-[10px] font-semibold text-slate-400">
+                    Click any color to add to product • Click the edit icon to change color name or hex code
+                  </span>
+                </div>
+
+                {/* Inline Editor for Preset Color Name & Color Code */}
+                {editingPresetIndex !== null && presetColors[editingPresetIndex] && (
+                  <div className="p-3 rounded-xl bg-white border-2 border-[#08A9A2] shadow-sm space-y-2.5 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-[#192E4D] flex items-center gap-1.5">
+                        <Palette className="w-3.5 h-3.5 text-[#08A9A2]" />
+                        <span>
+                          Edit Preset Color: &ldquo;{presetColors[editingPresetIndex].name}&rdquo;
+                        </span>
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => {
+                          setEditingPresetIndex(null);
+                          setPresetEditError(null);
+                        }}
+                        className="text-gray-400 hover:text-gray-700 p-1 rounded-lg cursor-pointer"
+                        title="Cancel editing"
+                      >
+                        <X className="w-3.5 h-3.5" />
+                      </button>
+                    </div>
+
+                    {presetEditError && (
+                      <div className="p-2 rounded-lg bg-rose-50 border border-rose-200 text-rose-700 text-[11px] font-bold">
+                        {presetEditError}
+                      </div>
+                    )}
+
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                      <div className="sm:col-span-5">
+                        <label className="block text-[10px] font-bold text-[#697586] uppercase mb-1">
+                          Color Name
+                        </label>
+                        <input
+                          type="text"
+                          value={presetEditName}
+                          onChange={(e) => {
+                            setPresetEditName(e.target.value);
+                            setPresetEditError(null);
+                          }}
+                          placeholder="e.g. Jet Black"
+                          className="w-full h-9 px-3 rounded-lg border border-gray-300 text-xs font-bold text-[#192E4D] bg-white focus:outline-hidden focus:border-[#08A9A2]"
+                        />
+                      </div>
+
+                      <div className="sm:col-span-4">
+                        <label className="block text-[10px] font-bold text-[#697586] uppercase mb-1">
+                          Color Swatch &amp; Code
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={
+                              /^#[0-9A-F]{6}$/i.test(presetEditHex.trim())
+                                ? presetEditHex.trim()
+                                : '#000000'
+                            }
+                            onChange={(e) => {
+                              setPresetEditHex(e.target.value.toUpperCase());
+                              setPresetEditError(null);
+                            }}
+                            className="w-9 h-9 rounded-lg border border-gray-300 cursor-pointer p-0.5 bg-white shrink-0"
+                          />
+                          <input
+                            type="text"
+                            value={presetEditHex}
+                            onChange={(e) => {
+                              setPresetEditHex(e.target.value.toUpperCase());
+                              setPresetEditError(null);
+                            }}
+                            placeholder="#000000"
+                            className="w-full h-9 px-2.5 rounded-lg border border-gray-300 text-xs font-mono font-bold text-[#192E4D] uppercase bg-white focus:outline-hidden focus:border-[#08A9A2]"
+                          />
+                        </div>
+                      </div>
+
+                      <div className="sm:col-span-3 flex items-center gap-1.5">
+                        <button
+                          type="button"
+                          onClick={handleSavePresetColorEdit}
+                          className="flex-1 h-9 px-3 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-bold text-xs flex items-center justify-center gap-1 shadow-2xs cursor-pointer"
+                        >
+                          <Check className="w-3.5 h-3.5" />
+                          <span>Save</span>
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => handleDeletePresetColor(editingPresetIndex)}
+                          className="h-9 px-2.5 rounded-lg border border-rose-200 bg-rose-50 hover:bg-rose-100 text-rose-600 font-bold text-xs flex items-center justify-center cursor-pointer"
+                          title="Delete from preset colors"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
                 <div className="flex flex-wrap gap-2">
-                  {PRESET_COLORS.map((preset) => {
+                  {presetColors.map((preset, presetIdx) => {
                     const alreadyAdded = pColors.some(
                       (c) => c.name.toLowerCase() === preset.name.toLowerCase()
                     );
+                    const isEditingThis = editingPresetIndex === presetIdx;
                     return (
-                      <button
-                        key={preset.name}
-                        type="button"
-                        disabled={alreadyAdded}
-                        onClick={() => {
-                          if (!alreadyAdded) {
-                            const newCol: ProductColor = {
-                              id: `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
-                              name: preset.name,
-                              hex: preset.hex,
-                            };
-                            setPColors([...pColors, newCol]);
-                          }
-                        }}
-                        className={`px-2.5 py-1.5 rounded-xl border text-xs font-bold flex items-center gap-1.5 transition-all cursor-pointer ${
-                          alreadyAdded
-                            ? 'bg-teal-50 text-teal-800 border-teal-200 opacity-60'
+                      <div
+                        key={`${preset.name}_${presetIdx}`}
+                        className={`inline-flex items-center rounded-xl border text-xs font-bold transition-all overflow-hidden ${
+                          isEditingThis
+                            ? 'bg-teal-50/90 text-[#192E4D] border-[#08A9A2] ring-2 ring-[#08A9A2]/25'
+                            : alreadyAdded
+                            ? 'bg-teal-50 text-teal-900 border-teal-300'
                             : 'bg-white text-[#192E4D] border-gray-200 hover:border-[#08A9A2]'
                         }`}
                       >
-                        <span
-                          className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0"
-                          style={{ backgroundColor: preset.hex }}
-                        />
-                        <span>{preset.name}</span>
-                        {alreadyAdded && <Check className="w-3 h-3 text-teal-600" />}
-                      </button>
+                        <button
+                          type="button"
+                          onClick={() => {
+                            if (!alreadyAdded) {
+                              const newCol: ProductColor = {
+                                id: `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
+                                name: preset.name,
+                                hex: preset.hex,
+                              };
+                              setPColors([...pColors, newCol]);
+                            }
+                          }}
+                          className={`pl-2.5 pr-2 py-1.5 flex items-center gap-1.5 cursor-pointer ${
+                            alreadyAdded ? 'opacity-80' : ''
+                          }`}
+                          title={
+                            alreadyAdded
+                              ? `${preset.name} (${preset.hex}) is added to this product`
+                              : `Click to add ${preset.name} (${preset.hex})`
+                          }
+                        >
+                          <span
+                            className="w-3.5 h-3.5 rounded-full border border-gray-300 shrink-0"
+                            style={{ backgroundColor: preset.hex }}
+                          />
+                          <span>{preset.name}</span>
+                          {alreadyAdded && <Check className="w-3 h-3 text-teal-600 shrink-0" />}
+                        </button>
+
+                        <button
+                          type="button"
+                          onClick={(e) => {
+                            e.stopPropagation();
+                            openEditPresetColor(presetIdx);
+                          }}
+                          className="px-2 py-1.5 border-l border-gray-200/80 text-slate-400 hover:text-[#08A9A2] hover:bg-slate-100/80 transition-colors cursor-pointer flex items-center justify-center"
+                          title={`Edit ${preset.name} name or color code (${preset.hex})`}
+                          aria-label={`Edit ${preset.name}`}
+                        >
+                          <Pencil className="w-3 h-3" />
+                        </button>
+                      </div>
                     );
                   })}
                 </div>
@@ -3385,10 +3667,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <span className="text-[11px] font-bold text-gray-500 block">
                   Quick Palette Suggestions:
                 </span>
-                <div className="flex flex-wrap gap-1.5">
-                  {PRESET_COLORS.map((preset) => (
+                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                  {presetColors.map((preset, idx) => (
                     <button
-                      key={preset.name}
+                      key={`${preset.name}_${idx}`}
                       type="button"
                       onClick={() => {
                         setCNameInput(preset.name);

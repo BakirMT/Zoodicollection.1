@@ -1,6 +1,8 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
 import { ZoodiLogo } from '../../components/ZoodiLogo';
+import { auth } from '../../lib/firebase';
+import { GoogleAuthProvider, signInWithPopup } from 'firebase/auth';
 import {
   ChevronLeft,
   Mail,
@@ -11,7 +13,6 @@ import {
   Phone,
   ArrowRight,
   ShieldCheck,
-  CheckCircle2,
 } from 'lucide-react';
 
 export const CustomerLoginScreen: React.FC = () => {
@@ -36,13 +37,35 @@ export const CustomerLoginScreen: React.FC = () => {
     }
   };
 
-  const handleGoogleSignIn = () => {
-    setIsLoading(true);
-    setTimeout(() => {
-      customerLogin('google', 'user@gmail.com', 'Google User');
+  const handleGoogleSignIn = async () => {
+    setAuthNotice(null);
+    try {
+      const provider = new GoogleAuthProvider();
+      provider.addScope('email');
+      provider.addScope('profile');
+      provider.setCustomParameters({
+        prompt: 'select_account',
+      });
+      const credential = await signInWithPopup(auth, provider);
+      setIsLoading(true);
+      const user = credential.user;
+      customerLogin(
+        'google',
+        user.email || 'user@gmail.com',
+        user.displayName || 'Google User'
+      );
       setIsLoading(false);
       navigateAfterAuth();
-    }, 700);
+    } catch (error: any) {
+      setIsLoading(false);
+      if (
+        error?.code === 'auth/popup-closed-by-user' ||
+        error?.code === 'auth/cancelled-popup-request'
+      ) {
+        return;
+      }
+      setAuthNotice(error?.message || 'Google Sign-In could not be completed.');
+    }
   };
 
   const handleAppleSignIn = () => {
