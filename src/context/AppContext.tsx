@@ -160,7 +160,15 @@ interface AppContextType {
   // Customer Actions
   customerLogin: (method: 'google' | 'apple' | 'email', email?: string, name?: string) => void;
   customerLogout: () => void;
-  addToCart: (product: Product, variant: ProductVariant, size?: string, quantity?: number) => { success: boolean; message?: string };
+  addToCart: (
+    product: Product,
+    variant: ProductVariant,
+    size?: string,
+    quantity?: number,
+    selectedImage?: string,
+    selectedVariantName?: string,
+    selectedVariantSku?: string
+  ) => { success: boolean; message?: string };
   removeFromCart: (cartItemId: string) => void;
   updateCartQuantity: (cartItemId: string, newQty: number) => void;
   applyCouponCode: (code: string) => boolean;
@@ -1180,7 +1188,10 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
     product: Product,
     variant: ProductVariant,
     size?: string,
-    quantity: number = 1
+    quantity: number = 1,
+    selectedImage?: string,
+    selectedVariantName?: string,
+    selectedVariantSku?: string
   ): { success: boolean; message?: string } => {
     const liveProduct = products.find((p) => p.id === product.id) || product;
     if (!isProductVisibleToCustomer(liveProduct)) {
@@ -1206,12 +1217,36 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       return { success: false, message: stockCheck.message };
     }
 
+    const pricingVariant: ProductVariant = {
+      ...liveVariant,
+      ...(variant.price !== undefined ? { price: variant.price } : {}),
+      ...(variant.salePrice !== undefined ? { salePrice: variant.salePrice } : {}),
+    };
+
     const { currentPrice: effectivePrice } = getEffectiveProductPricing(
       liveProduct,
-      liveVariant,
+      pricingVariant,
       normalizedSize
     );
-    const cartItemId = `${liveProduct.id}_${liveVariant.id}_${size || 'default'}`;
+
+    const chosenVariantName =
+      selectedVariantName?.trim() || variant.colorName?.trim() || liveVariant.colorName;
+    const chosenVariantImage =
+      selectedImage?.trim() ||
+      variant.variantImage?.trim() ||
+      liveVariant.variantImage?.trim() ||
+      variant.images?.[0] ||
+      liveVariant.images?.[0] ||
+      liveProduct.primaryImage ||
+      liveProduct.images?.[0] ||
+      '';
+    const combinationSku =
+      selectedVariantSku?.trim() ||
+      liveVariant.sizeSku?.[normalizedSize || 'Single Unit'] ||
+      variant.sku?.trim() ||
+      liveVariant.sku;
+
+    const cartItemId = `${liveProduct.id}_${liveVariant.id}_${size || 'default'}_${chosenVariantName}`;
     const existingCartItem = cart.find((item) => item.id === cartItemId);
     if (existingCartItem && existingCartItem.quantity + quantity > stockCheck.remaining) {
       return {
@@ -1219,9 +1254,6 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
         message: `Only ${stockCheck.remaining} unit(s) available in stock (you already have ${existingCartItem.quantity} in your cart).`,
       };
     }
-
-    const combinationSku =
-      liveVariant.sizeSku?.[normalizedSize || 'Single Unit'] || liveVariant.sku;
 
     setCart((prev) => {
       const existing = prev.find((item) => item.id === cartItemId);
@@ -1231,6 +1263,8 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           item.id === cartItemId
             ? {
                 ...item,
+                image: chosenVariantImage || item.image,
+                colorName: chosenVariantName || item.colorName,
                 price: effectivePrice,
                 maxStock: stockCheck.remaining,
                 quantity: newQty,
@@ -1245,13 +1279,9 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
           productName: liveProduct.name,
           brand: liveProduct.brand,
           variantId: liveVariant.id,
-          colorName: liveVariant.colorName,
-          colorCode: liveVariant.colorCode,
-          image:
-            liveProduct.primaryImage ||
-            liveProduct.images?.[0] ||
-            liveVariant.images?.[0] ||
-            '',
+          colorName: chosenVariantName,
+          colorCode: variant.colorCode || liveVariant.colorCode,
+          image: chosenVariantImage,
           size,
           sku: combinationSku,
           price: effectivePrice,
@@ -1382,11 +1412,20 @@ export const AppProvider: React.FC<{ children: React.ReactNode }> = ({ children 
       }
       const { currentPrice } = getEffectiveProductPricing(liveProd, liveVar, normalizedSize);
       const combinationSku =
-        liveVar.sizeSku?.[normalizedSize || 'Single Unit'] || liveVar.sku;
+        item.sku || liveVar.sizeSku?.[normalizedSize || 'Single Unit'] || liveVar.sku;
+      const verifiedImage =
+        item.image ||
+        liveVar.variantImage ||
+        liveVar.images?.[0] ||
+        liveProd.primaryImage ||
+        liveProd.images?.[0] ||
+        '';
       verifiedCartItems.push({
         ...item,
         productName: liveProd.name,
         brand: liveProd.brand,
+        image: verifiedImage,
+        colorName: item.colorName || liveVar.colorName,
         price: currentPrice,
         maxStock: stockCheck.remaining,
         sku: combinationSku,

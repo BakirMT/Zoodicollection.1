@@ -762,6 +762,8 @@ export function getEffectiveProductPricing(
   const originalPrice =
     optionEntry?.price && optionEntry.price > 0
       ? optionEntry.price
+      : variant?.price && variant.price > 0
+      ? variant.price
       : product.price && product.price > 0
       ? product.price
       : targetVariant?.price && targetVariant.price > 0
@@ -771,6 +773,12 @@ export function getEffectiveProductPricing(
   let currentPrice = originalPrice;
   if (optionEntry?.salePrice && optionEntry.salePrice > 0 && optionEntry.salePrice < originalPrice) {
     currentPrice = optionEntry.salePrice;
+  } else if (
+    variant?.salePrice &&
+    variant.salePrice > 0 &&
+    variant.salePrice < originalPrice
+  ) {
+    currentPrice = variant.salePrice;
   } else if (product.salePrice && product.salePrice > 0 && product.salePrice < originalPrice) {
     currentPrice = product.salePrice;
   } else if (

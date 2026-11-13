@@ -151,6 +151,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [editingColorIndex, setEditingColorIndex] = useState<number | null>(null);
   const [cNameInput, setCNameInput] = useState('');
   const [cHexInput, setCHexInput] = useState('#192E4D');
+  const [cImageInput, setCImageInput] = useState('');
+  const [cSkuInput, setCSkuInput] = useState('');
+  const [cPriceInput, setCPriceInput] = useState('');
+  const [cSalePriceInput, setCSalePriceInput] = useState('');
   const [colorModalError, setColorModalError] = useState<string | null>(null);
 
   const savePresetColorsList = (nextPresets: Array<{ name: string; hex: string }>) => {
@@ -255,6 +259,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setEditingColorIndex(null);
     setCNameInput('');
     setCHexInput('#192E4D');
+    setCImageInput('');
+    setCSkuInput('');
+    setCPriceInput('');
+    setCSalePriceInput('');
     setColorModalError(null);
 
     // Section 5: No automatic size or variant selection!
@@ -367,33 +375,55 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setPSizeChartImage(editingProduct.sizeChartImage || '');
       setPCareImage(editingProduct.careImage || '');
 
-      // 2. Load decoupled product colors
+      // 2. Load decoupled product colors / image variants
       const loadedColors: ProductColor[] = [];
+      const configuredVariantsForLoad = (editingProduct.variants || []).filter(
+        (v) =>
+          v.attributes?.isUnconfiguredDefault !== 'true' &&
+          v.colorName &&
+          v.colorName.trim() !== '' &&
+          v.colorName.trim().toLowerCase() !== 'standard' &&
+          v.colorName.trim().toLowerCase() !== 'default'
+      );
+
       if (Array.isArray(editingProduct.colors) && editingProduct.colors.length > 0) {
         editingProduct.colors.forEach((c, idx) => {
           if (c && c.name && c.name.trim()) {
+            const matchedVar = configuredVariantsForLoad.find(
+              (v) => v.id === c.id || v.colorName.trim().toLowerCase() === c.name.trim().toLowerCase()
+            );
             loadedColors.push({
-              id: c.id || `col_${idx}`,
+              id: c.id || matchedVar?.id || `col_${idx}`,
               name: c.name.trim(),
-              hex: c.hex || (c as any).code || '#192E4D',
+              hex: c.hex || (c as any).code || matchedVar?.colorCode || '#192E4D',
+              image:
+                c.image ||
+                matchedVar?.variantImage ||
+                allLoadedImages[idx] ||
+                allLoadedImages[0] ||
+                '',
+              sku: c.sku || matchedVar?.sku || '',
+              price: c.price ?? matchedVar?.price,
+              salePrice: c.salePrice ?? matchedVar?.salePrice,
             });
           }
         });
       } else {
-        const configuredVariants = (editingProduct.variants || []).filter(
-          (v) =>
-            v.attributes?.isUnconfiguredDefault !== 'true' &&
-            v.colorName &&
-            v.colorName.trim() !== '' &&
-            v.colorName.trim().toLowerCase() !== 'standard' &&
-            v.colorName.trim().toLowerCase() !== 'default'
-        );
-        configuredVariants.forEach((v, idx) => {
+        configuredVariantsForLoad.forEach((v, idx) => {
           if (!loadedColors.some((lc) => lc.name.toLowerCase() === v.colorName.trim().toLowerCase())) {
             loadedColors.push({
               id: v.id || `col_${idx}`,
               name: v.colorName.trim(),
               hex: v.colorCode || '#192E4D',
+              image:
+                v.variantImage ||
+                (Array.isArray(v.images) && v.images[idx] ? v.images[idx] : v.images?.[0]) ||
+                allLoadedImages[idx] ||
+                allLoadedImages[0] ||
+                '',
+              sku: v.sku || '',
+              price: v.price,
+              salePrice: v.salePrice,
             });
           }
         });
@@ -428,6 +458,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setEditingColorIndex(null);
       setCNameInput('');
       setCHexInput('#192E4D');
+      setCImageInput('');
+      setCSkuInput('');
+      setCPriceInput('');
+      setCSalePriceInput('');
       setColorModalError(null);
 
       // 3. Sizes & Combination Inventory
@@ -598,17 +632,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   // Active Colour & Size axes for dynamic Colour + Size combination generation
   const effectiveColorEntries =
     pColors.length > 0
-      ? pColors.map((c) => ({
+      ? pColors.map((c, idx) => ({
           id: c.id,
           colorName: c.name,
           colorCode: c.hex,
-          baseSku: pSku.trim() || editingProduct?.id || 'ZD-001',
+          variantImage: c.image || pGalleryImages[idx] || pGalleryImages[0] || '',
+          baseSku: c.sku?.trim() || pSku.trim() || editingProduct?.id || 'ZD-001',
         }))
       : [
           {
             id: 'default_color',
             colorName: pCustomColors.trim() || 'Standard',
             colorCode: '#192E4D',
+            variantImage: pPrimaryImage || pGalleryImages[0] || '',
             baseSku: pSku.trim() || editingProduct?.id || 'ZD-001',
           },
         ];
@@ -631,6 +667,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         colorId: c.id,
         colorName: c.colorName,
         colorCode: c.colorCode,
+        variantImage: c.variantImage,
         size: sz,
         sku: existing?.sku !== undefined ? existing.sku : suggestedSku,
         stockQuantityStr: rawQtyStr,
@@ -979,13 +1016,75 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }
   };
 
+  // Upload multiple image files from local device to gallery
+  const handleUploadGalleryFiles = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const files = Array.from(e.target.files || []);
+    if (files.length === 0) return;
+
+    Promise.all(
+      files.map(
+        (file) =>
+          new Promise<string>((resolve) => {
+            const reader = new FileReader();
+            reader.onload = () => resolve(String(reader.result || ''));
+            reader.onerror = () => resolve('');
+            reader.readAsDataURL(file);
+          })
+      )
+    ).then((dataUrls) => {
+      const validUrls = dataUrls.filter(Boolean);
+      if (validUrls.length > 0) {
+        setPGalleryImages((prev) => {
+          const merged = Array.from(new Set([...prev, ...validUrls]));
+          if (!pPrimaryImage.trim() && merged[0]) {
+            setPPrimaryImage(merged[0]);
+          }
+          return merged;
+        });
+        setGalleryUrlError(null);
+        setValidationError(null);
+      }
+    });
+    e.target.value = '';
+  };
+
+  // Create or sync selectable image variants directly from uploaded gallery images
+  const handleSyncVariantsFromGallery = () => {
+    if (pGalleryImages.length === 0) return;
+    const baseSkuVal = pSku.trim() || editingProduct?.id || 'ZD-001';
+    const nextColors = [...pColors];
+    pGalleryImages.forEach((imgUrl, idx) => {
+      const alreadyHasImage = nextColors.some((c) => c.image === imgUrl);
+      if (!alreadyHasImage) {
+        const defaultName = `Design ${nextColors.length + 1}`;
+        nextColors.push({
+          id: `col_${Date.now()}_${idx}_${Math.floor(Math.random() * 1000)}`,
+          name: defaultName,
+          hex: '#192E4D',
+          image: imgUrl,
+          sku: `${baseSkuVal}-V${nextColors.length + 1}`,
+          price: pPrice ? parseFloat(pPrice) : undefined,
+          salePrice: pSalePrice ? parseFloat(pSalePrice) : undefined,
+        });
+      }
+    });
+    setPColors(nextColors);
+  };
+
   // ==========================================
-  // SECTION 4: PRODUCT COLORS (DECOUPLED)
+  // SECTION 4: PRODUCT COLORS & IMAGE VARIANTS
   // ==========================================
-  const openAddColorModal = () => {
+  const openAddColorModal = (initialImage?: string) => {
     setEditingColorIndex(null);
     setCNameInput('');
     setCHexInput('#192E4D');
+    setCImageInput(
+      initialImage || pGalleryImages[pColors.length] || pGalleryImages[0] || ''
+    );
+    const baseSkuVal = pSku.trim() || editingProduct?.id || 'ZD-001';
+    setCSkuInput(`${baseSkuVal}-V${pColors.length + 1}`);
+    setCPriceInput(pPrice || '');
+    setCSalePriceInput(pSalePrice || '');
     setColorModalError(null);
     setShowColorModal(true);
   };
@@ -996,6 +1095,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setEditingColorIndex(idx);
     setCNameInput(c.name);
     setCHexInput(c.hex);
+    setCImageInput(c.image || pGalleryImages[idx] || pGalleryImages[0] || '');
+    const baseSkuVal = pSku.trim() || editingProduct?.id || 'ZD-001';
+    setCSkuInput(c.sku || `${baseSkuVal}-V${idx + 1}`);
+    setCPriceInput(c.price !== undefined ? String(c.price) : pPrice || '');
+    setCSalePriceInput(c.salePrice !== undefined ? String(c.salePrice) : pSalePrice || '');
     setColorModalError(null);
     setShowColorModal(true);
   };
@@ -1003,7 +1107,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const handleSaveColor = () => {
     const trimmed = cNameInput.trim();
     if (!trimmed) {
-      setColorModalError('Please enter a colour name (e.g. Jet Black, Pearl White, Navy Blue).');
+      setColorModalError('Please enter a variant / colour name (e.g. Jet Black, Floral Print, Design 1).');
       return;
     }
 
@@ -1013,7 +1117,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         c.name.trim().toLowerCase() === trimmed.toLowerCase()
     );
     if (duplicateExists) {
-      setColorModalError(`A colour named "${trimmed}" already exists for this product.`);
+      setColorModalError(`A variant named "${trimmed}" already exists for this product.`);
       return;
     }
 
@@ -1023,6 +1127,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
         : `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`;
 
     const currentSizes = variantType === 'none' ? ['Single Unit'] : pAvailableSizes;
+    const customVariantSku =
+      cSkuInput.trim() || formatCombinationSku(pSku.trim() || 'ZD-001', trimmed, 'ALL');
 
     // If first colour is added and user had entered quantities under default_color, migrate to this colour
     if (editingColorIndex === null && pColors.length === 0) {
@@ -1033,7 +1139,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           const newKey = `${colorId}__${sz}`;
           if (defaultEntry && !next[newKey]) {
             next[newKey] = {
-              sku: formatCombinationSku(pSku.trim() || 'ZD-001', trimmed, sz),
+              sku: formatCombinationSku(customVariantSku, trimmed, sz),
               stockQuantity: defaultEntry.stockQuantity,
               isActive: defaultEntry.isActive,
             };
@@ -1044,10 +1150,30 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     }
 
     const normalizedHex = (cHexInput || '#192E4D').trim().toUpperCase();
+    const chosenVarImage = normalizeSingleImageUrl(cImageInput.trim());
+    const parsedVarPrice = parseFloat(cPriceInput);
+    const parsedVarSalePrice = parseFloat(cSalePriceInput);
+
+    // Ensure the variant image is also included in pGalleryImages if not already present
+    if (chosenVarImage && !pGalleryImages.includes(chosenVarImage)) {
+      const updatedGallery = [...pGalleryImages, chosenVarImage];
+      setPGalleryImages(updatedGallery);
+      if (!pPrimaryImage.trim()) {
+        setPPrimaryImage(chosenVarImage);
+      }
+    }
+
     const newColorRecord: ProductColor = {
       id: colorId,
       name: trimmed,
       hex: normalizedHex,
+      image: chosenVarImage || undefined,
+      sku: customVariantSku,
+      price: !Number.isNaN(parsedVarPrice) && parsedVarPrice > 0 ? parsedVarPrice : undefined,
+      salePrice:
+        !Number.isNaN(parsedVarSalePrice) && parsedVarSalePrice > 0
+          ? parsedVarSalePrice
+          : undefined,
     };
 
     const previousColorName =
@@ -1372,6 +1498,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             const sizeSkuMap: Record<string, string> = {};
             const disabledSizesList: string[] = [];
 
+            const variantSpecificPrice =
+              c.price !== undefined && c.price > 0 ? c.price : numericPrice;
+            const variantSpecificSalePrice =
+              c.salePrice !== undefined && c.salePrice > 0 && c.salePrice < variantSpecificPrice
+                ? c.salePrice
+                : validSalePrice;
+            const variantSpecificSku =
+              c.sku?.trim() || formatCombinationSku(pSku.trim() || productId, c.name, 'ALL');
+            const dedicatedVariantImage =
+              c.image?.trim() || finalGalleryImages[idx] || finalGalleryImages[0] || '';
+
             sizeKeysForInventory.forEach((sz) => {
               const comboKey = `${c.id}__${sz}`;
               const cell = combinationInventory[comboKey];
@@ -1382,7 +1519,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               const isComboActive = cell ? cell.isActive : true;
               const comboSku =
                 cell?.sku?.trim() ||
-                formatCombinationSku(pSku.trim() || productId, c.name, sz);
+                formatCombinationSku(variantSpecificSku, c.name, sz);
 
               sizeStockMap[sz] = isComboActive ? rawQty : 0;
               sizeSkuMap[sz] = comboSku;
@@ -1399,8 +1536,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 sku: comboSku,
                 stockQuantity: isComboActive ? rawQty : 0,
                 isActive: isComboActive,
-                price: numericPrice,
-                salePrice: validSalePrice,
+                price: variantSpecificPrice,
+                salePrice: variantSpecificSalePrice,
               });
             });
 
@@ -1413,14 +1550,20 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               id: c.id,
               colorName: c.name,
               colorCode: c.hex,
-              sku: formatCombinationSku(pSku.trim() || productId, c.name, 'ALL'),
-              price: numericPrice,
-              salePrice: validSalePrice,
+              variantImage: dedicatedVariantImage,
+              sku: variantSpecificSku,
+              price: variantSpecificPrice,
+              salePrice: variantSpecificSalePrice,
               stock: derivedVariantStock,
               sizeStock: sizeStockMap,
               sizeSku: sizeSkuMap,
               disabledSizes: disabledSizesList.length > 0 ? disabledSizesList : undefined,
-              images: finalGalleryImages, // Common gallery shared by all variants
+              images: dedicatedVariantImage
+                ? [
+                    dedicatedVariantImage,
+                    ...finalGalleryImages.filter((g) => g !== dedicatedVariantImage),
+                  ]
+                : finalGalleryImages,
             };
           })
         : (() => {
@@ -1924,11 +2067,26 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </span>
               </div>
 
-              {/* Simple Single Image URL Input */}
-              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2">
-                <label className="font-extrabold text-[#192E4D] text-xs block">
-                  Product Image Gallery
-                </label>
+              {/* Image URL & Multi-File Upload Input */}
+              <div className="p-4 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2.5">
+                <div className="flex flex-wrap items-center justify-between gap-2">
+                  <label className="font-extrabold text-[#192E4D] text-xs block">
+                    Add Product & Variant Images (Upload Files or Paste Image URL)
+                  </label>
+                  {pGalleryImages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={() => {
+                        handleSyncVariantsFromGallery();
+                        setActiveSection(4);
+                      }}
+                      className="px-3 py-1 rounded-lg bg-teal-50 hover:bg-teal-100 text-[#08A9A2] border border-teal-200 text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Plus className="w-3 h-3" />
+                      <span>Create Selectable Image Variants from Gallery ({pGalleryImages.length})</span>
+                    </button>
+                  )}
+                </div>
                 <div className="flex flex-col sm:flex-row gap-2">
                   <input
                     type="url"
@@ -1943,18 +2101,29 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                         handleAddGalleryImage();
                       }
                     }}
-                    placeholder="Enter product image URL..."
+                    placeholder="Enter product or variant image URL..."
                     className="flex-1 h-10 px-3.5 border border-[#E6EAF0] rounded-xl text-xs font-mono font-medium bg-white focus:outline-hidden focus:border-[#08A9A2]"
                   />
                   <button
                     type="button"
                     disabled={isAddingImageUrl}
                     onClick={handleAddGalleryImage}
-                    className="px-5 h-10 bg-[#08A9A2] hover:bg-[#079690] disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0"
+                    className="px-4 h-10 bg-[#08A9A2] hover:bg-[#079690] disabled:opacity-60 text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0"
                   >
                     <Plus className="w-4 h-4" />
-                    <span>{isAddingImageUrl ? 'Adding Image...' : '+ Add Image'}</span>
+                    <span>{isAddingImageUrl ? 'Adding...' : '+ Add URL'}</span>
                   </button>
+                  <label className="px-4 h-10 bg-[#192E4D] hover:bg-[#243c61] text-white rounded-xl text-xs font-bold flex items-center justify-center gap-1.5 cursor-pointer transition-colors shrink-0">
+                    <ImageIcon className="w-4 h-4" />
+                    <span>Upload Images</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      multiple
+                      onChange={handleUploadGalleryFiles}
+                      className="hidden"
+                    />
+                  </label>
                 </div>
                 {galleryUrlError && (
                   <p className="text-xs font-bold text-rose-600 flex items-center gap-1.5 pt-0.5">
@@ -2095,6 +2264,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                               <button
                                 type="button"
+                                onClick={() => openAddColorModal(img)}
+                                className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#192E4D] text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Create a selectable product variant with this image"
+                              >
+                                <Plus className="w-3 h-3" />
+                                <span>Variant</span>
+                              </button>
+
+                              <button
+                                type="button"
                                 onClick={() => handleRemoveGalleryImage(idx)}
                                 className="px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ml-auto"
                                 title="Remove image from gallery"
@@ -2186,26 +2365,38 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </div>
           )}
 
-          {/* SECTION 4: PRODUCT COLORS (INDEPENDENT) */}
+          {/* SECTION 4: PRODUCT COLORS & IMAGE VARIANTS */}
           {activeSection === 4 && (
             <div className="space-y-4 animate-in fade-in-50">
               <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-black text-[#192E4D]">
-                    Section 4: Product Colors (Independent)
+                    Section 4: Product Colors & Image Variants
                   </h3>
                   <p className="text-xs text-[#697586]">
-                    Add and manage product colors independently. Colors are completely decoupled from images, and all product photos remain available across all color options.
+                    Configure product variants (colors, designs, patterns, or styles) with their own variant image, SKU, price, and size stock.
                   </p>
                 </div>
-                <button
-                  type="button"
-                  onClick={openAddColorModal}
-                  className="px-3.5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95 shrink-0"
-                >
-                  <Plus className="w-3.5 h-3.5" />
-                  <span>+ Add Product Color</span>
-                </button>
+                <div className="flex items-center gap-2 shrink-0">
+                  {pGalleryImages.length > 0 && (
+                    <button
+                      type="button"
+                      onClick={handleSyncVariantsFromGallery}
+                      className="px-3 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#08A9A2] border border-teal-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
+                    >
+                      <ImageIcon className="w-3.5 h-3.5" />
+                      <span>Sync from Gallery ({pGalleryImages.length})</span>
+                    </button>
+                  )}
+                  <button
+                    type="button"
+                    onClick={() => openAddColorModal()}
+                    className="px-3.5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95 shrink-0"
+                  >
+                    <Plus className="w-3.5 h-3.5" />
+                    <span>+ Add Product Color / Variant</span>
+                  </button>
+                </div>
               </div>
 
               {pendingRemovalWarning && (
@@ -2365,10 +2556,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                           type="button"
                           onClick={() => {
                             if (!alreadyAdded) {
+                              const baseSkuVal = pSku.trim() || editingProduct?.id || 'ZD-001';
                               const newCol: ProductColor = {
                                 id: `col_${Date.now()}_${Math.floor(Math.random() * 1000)}`,
                                 name: preset.name,
                                 hex: preset.hex,
+                                image: pGalleryImages[pColors.length] || pGalleryImages[0] || undefined,
+                                sku: `${baseSkuVal}-V${pColors.length + 1}`,
+                                price: pPrice ? parseFloat(pPrice) : undefined,
+                                salePrice: pSalePrice ? parseFloat(pSalePrice) : undefined,
                               };
                               setPColors([...pColors, newCol]);
                             }
@@ -2421,53 +2617,87 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
                 {pColors.length === 0 ? (
                   <div className="p-4 bg-slate-50 rounded-xl border border-dashed border-gray-300 text-center text-xs text-gray-500 space-y-1">
-                    <p className="font-bold text-[#192E4D]">No specific colors added yet.</p>
+                    <p className="font-bold text-[#192E4D]">No specific variants or colors added yet.</p>
                     <p className="text-[11px] text-gray-400">
                       Product inventory below will default to "Standard". Click{' '}
-                      <span className="font-bold text-[#08A9A2]">+ Add Product Color</span> or choose preset chips above to add colors (e.g. Black, White, Blue).
+                      <span className="font-bold text-[#08A9A2]">+ Add Product Color / Variant</span>, sync from gallery, or choose preset chips above.
                     </p>
                   </div>
                 ) : (
                   <div className="grid grid-cols-1 sm:grid-cols-2 md:grid-cols-3 gap-3">
-                    {pColors.map((color, idx) => (
-                      <div
-                        key={color.id || idx}
-                        className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex items-center justify-between gap-2 shadow-2xs hover:border-slate-300 transition-colors"
-                      >
-                        <div className="flex items-center gap-2.5 truncate">
-                          <div
-                            className="w-7 h-7 rounded-full border-2 border-white shadow-sm shrink-0"
-                            style={{ backgroundColor: color.hex }}
-                          />
-                          <div className="truncate">
-                            <span className="font-extrabold text-[#192E4D] text-xs block truncate">
-                              {color.name}
-                            </span>
-                            <span className="font-mono text-[10px] text-gray-400 block uppercase">
-                              {color.hex}
-                            </span>
+                    {pColors.map((color, idx) => {
+                      const previewImg =
+                        color.image || pGalleryImages[idx] || pGalleryImages[0] || '';
+                      const displaySku =
+                        color.sku ||
+                        formatCombinationSku(pSku.trim() || 'ZD-001', color.name, 'ALL');
+                      const displayPrice =
+                        color.salePrice ?? color.price ?? (pSalePrice ? parseFloat(pSalePrice) : pPrice ? parseFloat(pPrice) : undefined);
+                      return (
+                        <div
+                          key={color.id || idx}
+                          className="p-3 bg-white rounded-xl border border-[#E6EAF0] flex items-center justify-between gap-2.5 shadow-2xs hover:border-slate-300 transition-colors"
+                        >
+                          <div className="flex items-center gap-2.5 min-w-0 flex-1">
+                            {previewImg ? (
+                              <div className="relative w-11 h-12 rounded-lg overflow-hidden border border-[#E6EAF0] bg-slate-50 shrink-0">
+                                <img
+                                  src={previewImg}
+                                  alt={color.name}
+                                  referrerPolicy="no-referrer"
+                                  className="w-full h-full object-cover"
+                                />
+                                <span
+                                  className="absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full border border-white shadow-2xs"
+                                  style={{ backgroundColor: color.hex }}
+                                />
+                              </div>
+                            ) : (
+                              <div
+                                className="w-9 h-9 rounded-full border-2 border-white shadow-sm shrink-0"
+                                style={{ backgroundColor: color.hex }}
+                              />
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <span className="font-extrabold text-[#192E4D] text-xs block truncate">
+                                {color.name}
+                              </span>
+                              <span className="font-mono text-[10px] text-gray-500 block truncate">
+                                SKU: {displaySku}
+                              </span>
+                              <div className="flex items-center gap-1.5 mt-0.5">
+                                {displayPrice !== undefined && !Number.isNaN(displayPrice) && (
+                                  <span className="text-[10px] font-black text-[#08A9A2]">
+                                    ₹{Math.round(displayPrice).toLocaleString('en-IN')}
+                                  </span>
+                                )}
+                                <span className="font-mono text-[9px] text-gray-400 uppercase">
+                                  {color.hex}
+                                </span>
+                              </div>
+                            </div>
+                          </div>
+
+                          <div className="flex items-center gap-1 shrink-0">
+                            <button
+                              type="button"
+                              onClick={() => openEditColorModal(idx)}
+                              className="px-2 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-[11px] hover:bg-teal-100 cursor-pointer"
+                            >
+                              Edit
+                            </button>
+                            <button
+                              type="button"
+                              onClick={() => handleDeleteColor(idx)}
+                              className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
+                              title="Remove variant"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
                           </div>
                         </div>
-
-                        <div className="flex items-center gap-1 shrink-0">
-                          <button
-                            type="button"
-                            onClick={() => openEditColorModal(idx)}
-                            className="px-2 py-1 rounded-lg bg-teal-50 text-[#08A9A2] font-bold text-[11px] hover:bg-teal-100 cursor-pointer"
-                          >
-                            Edit
-                          </button>
-                          <button
-                            type="button"
-                            onClick={() => handleDeleteColor(idx)}
-                            className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
-                            title="Remove color"
-                          >
-                            <Trash2 className="w-3.5 h-3.5" />
-                          </button>
-                        </div>
-                      </div>
-                    ))}
+                      );
+                    })}
                   </div>
                 )}
               </div>
@@ -2724,11 +2954,29 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                           >
                             <td className="py-2.5 px-3 font-bold text-[#192E4D]">
                               <div className="flex items-center gap-2">
-                                <span
-                                  className="w-4 h-4 rounded-full border border-gray-300 shrink-0"
-                                  style={{ backgroundColor: row.colorCode }}
-                                />
-                                <span>{row.colorName}</span>
+                                {row.variantImage ? (
+                                  <img
+                                    src={row.variantImage}
+                                    alt={row.colorName}
+                                    referrerPolicy="no-referrer"
+                                    className="w-8 h-9 rounded-lg object-cover border border-gray-200 shrink-0"
+                                  />
+                                ) : (
+                                  <span
+                                    className="w-4 h-4 rounded-full border border-gray-300 shrink-0"
+                                    style={{ backgroundColor: row.colorCode }}
+                                  />
+                                )}
+                                <div>
+                                  <span className="block">{row.colorName}</span>
+                                  <span className="flex items-center gap-1 text-[10px] text-gray-400 font-mono">
+                                    <span
+                                      className="w-2 h-2 rounded-full border border-gray-300"
+                                      style={{ backgroundColor: row.colorCode }}
+                                    />
+                                    <span>{row.colorCode}</span>
+                                  </span>
+                                </div>
                               </div>
                             </td>
                             <td className="py-2.5 px-3">
@@ -3601,15 +3849,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           </div>
         </div>
 
-        {/* SUB-MODAL: INDEPENDENT COLOR EDITOR */}
+        {/* SUB-MODAL: VARIANT / COLOR & IMAGE EDITOR */}
         {showColorModal && (
-          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4">
-            <div className="w-full max-w-md bg-white rounded-3xl p-5 shadow-2xl space-y-4 text-xs animate-in zoom-in-95">
+          <div className="fixed inset-0 z-60 bg-black/70 backdrop-blur-xs flex items-center justify-center p-4 overflow-y-auto">
+            <div className="w-full max-w-lg bg-white rounded-3xl p-5 shadow-2xl space-y-3.5 text-xs animate-in zoom-in-95 my-8 max-h-[90vh] overflow-y-auto">
               <div className="flex items-center justify-between border-b pb-2">
                 <div className="flex items-center gap-2">
                   <Palette className="w-4 h-4 text-[#08A9A2]" />
                   <h4 className="font-extrabold text-[#192E4D] text-sm">
-                    {editingColorIndex !== null ? 'Edit Product Color' : 'Add Product Color'}
+                    {editingColorIndex !== null
+                      ? 'Edit Product Variant / Color'
+                      : 'Add Product Variant / Color'}
                   </h4>
                 </div>
                 <button
@@ -3627,20 +3877,146 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
               )}
 
-              <div>
-                <label className="font-bold text-[#192E4D] block mb-1">
-                  Color Name <span className="text-rose-500">*</span>
-                </label>
-                <input
-                  type="text"
-                  value={cNameInput}
-                  onChange={(e) => {
-                    setCNameInput(e.target.value);
-                    setColorModalError(null);
-                  }}
-                  placeholder="e.g. Jet Black, Pure White, Royal Navy"
-                  className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
-                />
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-[#192E4D] block mb-1">
+                    Variant / Design / Color Name <span className="text-rose-500">*</span>
+                  </label>
+                  <input
+                    type="text"
+                    value={cNameInput}
+                    onChange={(e) => {
+                      setCNameInput(e.target.value);
+                      setColorModalError(null);
+                    }}
+                    placeholder="e.g. Jet Black, Floral Print, Design 1"
+                    className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
+                  />
+                </div>
+
+                <div>
+                  <label className="font-bold text-[#192E4D] block mb-1">
+                    Variant SKU
+                  </label>
+                  <input
+                    type="text"
+                    value={cSkuInput}
+                    onChange={(e) => setCSkuInput(e.target.value)}
+                    placeholder="e.g. ZD-001-V1"
+                    className="w-full h-10 px-3 border border-gray-200 rounded-xl font-mono font-bold bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
+                  />
+                </div>
+              </div>
+
+              {/* Variant Image Selector (Pick from Gallery, Upload File, or Enter URL) */}
+              <div className="p-3 rounded-2xl bg-[#F6F8FA] border border-[#E6EAF0] space-y-2.5">
+                <div className="flex items-center justify-between">
+                  <label className="font-bold text-[#192E4D] text-xs">
+                    Variant Image (Displayed when customer selects this variant)
+                  </label>
+                  <label className="px-2.5 py-1 rounded-lg bg-[#192E4D] hover:bg-[#243c61] text-white text-[10px] font-bold cursor-pointer flex items-center gap-1">
+                    <ImageIcon className="w-3 h-3" />
+                    <span>Upload Image</span>
+                    <input
+                      type="file"
+                      accept="image/*"
+                      onChange={(e) => {
+                        const file = e.target.files?.[0];
+                        if (!file) return;
+                        const reader = new FileReader();
+                        reader.onload = () => {
+                          const dataUrl = String(reader.result || '');
+                          if (dataUrl) {
+                            setCImageInput(dataUrl);
+                          }
+                        };
+                        reader.readAsDataURL(file);
+                        e.target.value = '';
+                      }}
+                      className="hidden"
+                    />
+                  </label>
+                </div>
+
+                <div className="flex items-center gap-2">
+                  {cImageInput && (
+                    <img
+                      src={cImageInput}
+                      alt="Variant preview"
+                      referrerPolicy="no-referrer"
+                      className="w-12 h-14 rounded-xl object-cover border border-[#08A9A2] bg-white shrink-0"
+                    />
+                  )}
+                  <input
+                    type="url"
+                    value={cImageInput}
+                    onChange={(e) => setCImageInput(e.target.value)}
+                    placeholder="Select from gallery below or paste image URL..."
+                    className="flex-1 h-10 px-3 border border-gray-200 rounded-xl font-mono text-xs bg-white focus:outline-hidden focus:border-[#08A9A2]"
+                  />
+                </div>
+
+                {pGalleryImages.length > 0 && (
+                  <div className="space-y-1">
+                    <span className="text-[10px] font-bold text-[#697586] block">
+                      Click a Product Gallery Image to Assign to this Variant:
+                    </span>
+                    <div className="flex items-center gap-2 overflow-x-auto py-1">
+                      {pGalleryImages.map((gImg, gIdx) => {
+                        const isPicked = cImageInput === gImg;
+                        return (
+                          <button
+                            key={gIdx}
+                            type="button"
+                            onClick={() => setCImageInput(gImg)}
+                            className={`relative w-12 h-14 rounded-xl overflow-hidden border-2 shrink-0 cursor-pointer transition-all ${
+                              isPicked
+                                ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/30 scale-105'
+                                : 'border-white opacity-80 hover:opacity-100'
+                            }`}
+                          >
+                            <img
+                              src={gImg}
+                              alt={`Gallery ${gIdx + 1}`}
+                              referrerPolicy="no-referrer"
+                              className="w-full h-full object-cover"
+                            />
+                          </button>
+                        );
+                      })}
+                    </div>
+                  </div>
+                )}
+              </div>
+
+              {/* Optional Variant-Specific Price & Sale Price */}
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="font-bold text-[#192E4D] block mb-1">
+                    Variant Price (₹) <span className="text-gray-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cPriceInput}
+                    onChange={(e) => setCPriceInput(e.target.value)}
+                    placeholder={pPrice ? `Default: ₹${pPrice}` : 'Enter price'}
+                    className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
+                  />
+                </div>
+                <div>
+                  <label className="font-bold text-[#192E4D] block mb-1">
+                    Variant Sale Price (₹) <span className="text-gray-400 font-normal">(Optional)</span>
+                  </label>
+                  <input
+                    type="number"
+                    min="1"
+                    value={cSalePriceInput}
+                    onChange={(e) => setCSalePriceInput(e.target.value)}
+                    placeholder={pSalePrice ? `Default: ₹${pSalePrice}` : 'Optional sale price'}
+                    className="w-full h-10 px-3 border border-gray-200 rounded-xl font-bold text-teal-700 bg-white text-xs focus:outline-hidden focus:border-[#08A9A2]"
+                  />
+                </div>
               </div>
 
               <div>
@@ -3667,7 +4043,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 <span className="text-[11px] font-bold text-gray-500 block">
                   Quick Palette Suggestions:
                 </span>
-                <div className="flex flex-wrap gap-1.5 max-h-32 overflow-y-auto pr-1">
+                <div className="flex flex-wrap gap-1.5 max-h-28 overflow-y-auto pr-1">
                   {presetColors.map((preset, idx) => (
                     <button
                       key={`${preset.name}_${idx}`}
@@ -3689,10 +4065,6 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                 </div>
               </div>
 
-              <div className="p-3 bg-teal-50/70 border border-teal-200 rounded-xl text-[11px] text-teal-900 leading-relaxed">
-                Colors are independent and not linked to individual photos. All uploaded product images remain in the common gallery and are visible across all colors on the storefront.
-              </div>
-
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <button
                   type="button"
@@ -3706,7 +4078,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   onClick={handleSaveColor}
                   className="px-4 py-2 bg-[#08A9A2] hover:bg-[#079690] text-white rounded-xl font-bold cursor-pointer text-xs shadow-xs"
                 >
-                  {editingColorIndex !== null ? 'Update Color' : 'Save Color'}
+                  {editingColorIndex !== null ? 'Update Variant' : 'Save Variant'}
                 </button>
               </div>
             </div>

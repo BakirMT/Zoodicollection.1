@@ -90,7 +90,41 @@ export const ProductDetailScreen: React.FC = () => {
     );
   }
 
-  // Filter out unconfigured internal carrier variants so only real configured color variants are shown
+  // Product image gallery containing all admin-added product photos & variant images in saved order
+  const [resolvedUrlMap, setResolvedUrlMap] = useState<Record<string, string>>({});
+  const baseSavedGallery =
+    Array.isArray(product.images) && product.images.length > 0
+      ? reconstructAndNormalizeImageList([
+          ...product.images,
+          ...((product.variants || []).map((v) => v.variantImage || '').filter(Boolean)),
+          ...((product.colors || []).map((c) => c.image || '').filter(Boolean)),
+        ])
+      : reconstructAndNormalizeImageList([
+          ...(product.primaryImage ? [product.primaryImage] : []),
+          ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
+          ...((product.variants || []).map((v) => v.variantImage || '').filter(Boolean)),
+          ...((product.colors || []).map((c) => c.image || '').filter(Boolean)),
+          ...((product.variants || []).flatMap((v) => v.images || [])),
+        ]);
+  const primaryImg = product.primaryImage ? product.primaryImage.trim() : '';
+  const rawGalleryImages = primaryImg
+    ? [primaryImg, ...baseSavedGallery.filter((img) => img !== primaryImg)]
+    : baseSavedGallery;
+  const galleryImages = rawGalleryImages.map((u) => resolvedUrlMap[u] || u);
+
+  useEffect(() => {
+    rawGalleryImages.forEach((u) => {
+      if (isImageShareViewerUrl(u) && !resolvedUrlMap[u]) {
+        resolveDirectImageUrl(u).then((resolved) => {
+          if (resolved && resolved !== u) {
+            setResolvedUrlMap((prev) => ({ ...prev, [u]: resolved }));
+          }
+        });
+      }
+    });
+  }, [product.id]);
+
+  // Filter out unconfigured internal carrier variants so only real configured variants are used when present
   const configuredVariants = (product.variants || []).filter(
     (v) =>
       v.attributes?.isUnconfiguredDefault !== 'true' &&
@@ -100,15 +134,57 @@ export const ProductDetailScreen: React.FC = () => {
       v.colorName.trim().toLowerCase() !== 'standard'
   );
 
-  const requiresColorSelection = configuredVariants.length > 0;
+  // Build unified Selectable Image Variants dynamically from database product variants & gallery images
+  const baseCarrierVariant = product.variants?.[0];
+  const baseProductSku =
+    baseCarrierVariant?.sku || `ZD-${product.id.replace(/[^a-zA-Z0-9]/g, '').slice(-5).toUpperCase()}`;
+
+  const selectableVariants =
+    configuredVariants.length > 0
+      ? configuredVariants.map((v, idx) => {
+          const matchedColor = (product.colors || []).find(
+            (c) =>
+              c.id === v.id ||
+              (c.name && v.colorName && c.name.trim().toLowerCase() === v.colorName.trim().toLowerCase())
+          );
+          const rawVarImg =
+            v.variantImage?.trim() ||
+            matchedColor?.image?.trim() ||
+            (Array.isArray(v.images) && v.images[idx] ? v.images[idx] : v.images?.[0]) ||
+            galleryImages[idx] ||
+            galleryImages[0] ||
+            '';
+          const resolvedVarImg = resolvedUrlMap[rawVarImg] || rawVarImg;
+          return {
+            ...v,
+            variantImage: resolvedVarImg,
+            sku: matchedColor?.sku?.trim() || v.sku || `${baseProductSku}-V${idx + 1}`,
+            price: matchedColor?.price !== undefined ? matchedColor.price : v.price,
+            salePrice:
+              matchedColor?.salePrice !== undefined ? matchedColor.salePrice : v.salePrice,
+          };
+        })
+      : galleryImages.length > 1 && baseCarrierVariant
+      ? galleryImages.map((imgUrl, idx) => ({
+          ...baseCarrierVariant,
+          id: baseCarrierVariant.id,
+          colorName: `Design ${idx + 1}`,
+          colorCode: baseCarrierVariant.colorCode || '#192E4D',
+          variantImage: imgUrl,
+          images: [imgUrl, ...galleryImages.filter((g) => g !== imgUrl)],
+          sku: `${baseProductSku}-D${idx + 1}`,
+        }))
+      : configuredVariants;
+
+  const requiresColorSelection = selectableVariants.length > 0;
   const requiresSizeSelection =
     product.variantType !== 'none' && Boolean(product.sizes && product.sizes.length > 0);
 
   // Active variant for gallery/price display (uses selected variant if chosen, or first variant for preview)
   const activeVariant =
     (selectedVariantIndex !== null
-      ? configuredVariants[selectedVariantIndex]
-      : configuredVariants[0]) ||
+      ? selectableVariants[selectedVariantIndex]
+      : selectableVariants[0]) ||
     product.variants?.[0];
 
   const isWishlisted = wishlistIds.includes(product.id);
@@ -116,7 +192,7 @@ export const ProductDetailScreen: React.FC = () => {
   const { currentPrice, originalPrice, hasDiscount, discountPercent } =
     getEffectiveProductPricing(product, activeVariant, selectedSize || undefined);
 
-  // Variant size stock check (Colour + Size combination aware)
+  // Variant size stock check (Variant + Size combination aware)
   const sizeStockMap = activeVariant?.sizeStock || {};
   const disabledSizesSet = new Set(activeVariant?.disabledSizes || []);
   const isSizeDisabledForColor = (sz: string) => disabledSizesSet.has(sz);
@@ -142,11 +218,16 @@ export const ProductDetailScreen: React.FC = () => {
     (!requiresSizeSelection && activeVariant?.sizeSku?.['Single Unit']) ||
     activeVariant?.sku;
 
-  // Handle color variant change (CRITICAL: Selecting a color must NEVER filter, replace, hide, or change the product image gallery)
+  // Handle variant selection & update the larger preview image to show the selected variant image
   const handleVariantChange = (index: number) => {
-    const nextVar = configuredVariants[index];
+    const nextVar = selectableVariants[index];
     setSelectedVariantIndex(index);
-    // Do NOT change selectedImageIndex — common gallery remains intact regardless of selected color
+    if (nextVar?.variantImage) {
+      const galleryMatchIdx = galleryImages.findIndex((g) => g === nextVar.variantImage);
+      if (galleryMatchIdx !== -1) {
+        setSelectedImageIndex(galleryMatchIdx);
+      }
+    }
     setFeedbackMsg(null);
     if (nextVar && selectedSize) {
       const nextDisabled = (nextVar.disabledSizes || []).includes(selectedSize);
@@ -192,7 +273,7 @@ export const ProductDetailScreen: React.FC = () => {
     if (requiresColorSelection && selectedVariantIndex === null) {
       setFeedbackMsg({
         type: 'error',
-        text: 'Please select a color option before adding this product to your cart.',
+        text: 'Please select a product design / variant image before adding to your cart.',
       });
       return false;
     }
@@ -213,14 +294,35 @@ export const ProductDetailScreen: React.FC = () => {
     return true;
   };
 
+  const activeImageIdx = selectedImageIndex < galleryImages.length ? selectedImageIndex : 0;
+  const selectedVariantObj =
+    selectedVariantIndex !== null ? selectableVariants[selectedVariantIndex] : null;
+  const currentMainImage =
+    galleryImages[activeImageIdx] ||
+    selectedVariantObj?.variantImage ||
+    galleryImages[0] ||
+    '';
+
   const handleAddToCart = () => {
     if (!validatePurchaseSelection()) return;
 
     const chosenSize = requiresSizeSelection ? selectedSize : 'One Size';
-    const result = addToCart(product, activeVariant, chosenSize, quantity);
+    const chosenImg = selectedVariantObj?.variantImage || currentMainImage;
+    const chosenVarName = selectedVariantObj?.colorName || activeVariant?.colorName;
+    const chosenVarSku = activeCombinationSku || selectedVariantObj?.sku || activeVariant?.sku;
+
+    const result = addToCart(
+      product,
+      activeVariant,
+      chosenSize,
+      quantity,
+      chosenImg,
+      chosenVarName,
+      chosenVarSku
+    );
     if (result.success) {
       const optionSummary = [
-        requiresColorSelection && activeVariant?.colorName ? activeVariant.colorName : '',
+        requiresColorSelection && chosenVarName ? chosenVarName : '',
         requiresSizeSelection && selectedSize ? selectedSize : '',
       ]
         .filter(Boolean)
@@ -239,7 +341,19 @@ export const ProductDetailScreen: React.FC = () => {
     if (!validatePurchaseSelection()) return;
 
     const chosenSize = requiresSizeSelection ? selectedSize : 'One Size';
-    const result = addToCart(product, activeVariant, chosenSize, quantity);
+    const chosenImg = selectedVariantObj?.variantImage || currentMainImage;
+    const chosenVarName = selectedVariantObj?.colorName || activeVariant?.colorName;
+    const chosenVarSku = activeCombinationSku || selectedVariantObj?.sku || activeVariant?.sku;
+
+    const result = addToCart(
+      product,
+      activeVariant,
+      chosenSize,
+      quantity,
+      chosenImg,
+      chosenVarName,
+      chosenVarSku
+    );
     if (result.success) {
       setCustomerTab('cart');
       setActiveScreen('checkout');
@@ -260,37 +374,6 @@ export const ProductDetailScreen: React.FC = () => {
   };
 
   const productReviews = reviews.filter((r) => r.productId === product.id && r.status === 'approved');
-
-  // Product image gallery containing only the exact admin-added product photos in saved order, with primaryImage first
-  const [resolvedUrlMap, setResolvedUrlMap] = useState<Record<string, string>>({});
-  const baseSavedGallery =
-    Array.isArray(product.images) && product.images.length > 0
-      ? reconstructAndNormalizeImageList(product.images)
-      : reconstructAndNormalizeImageList([
-          ...(product.primaryImage ? [product.primaryImage] : []),
-          ...(Array.isArray(product.additionalImages) ? product.additionalImages : []),
-          ...((product.variants || []).flatMap((v) => v.images || [])),
-        ]);
-  const primaryImg = product.primaryImage ? product.primaryImage.trim() : '';
-  const rawGalleryImages = primaryImg
-    ? [primaryImg, ...baseSavedGallery.filter((img) => img !== primaryImg)]
-    : baseSavedGallery;
-  const galleryImages = rawGalleryImages.map((u) => resolvedUrlMap[u] || u);
-
-  useEffect(() => {
-    rawGalleryImages.forEach((u) => {
-      if (isImageShareViewerUrl(u) && !resolvedUrlMap[u]) {
-        resolveDirectImageUrl(u).then((resolved) => {
-          if (resolved && resolved !== u) {
-            setResolvedUrlMap((prev) => ({ ...prev, [u]: resolved }));
-          }
-        });
-      }
-    });
-  }, [product.id]);
-
-  const activeImageIdx = selectedImageIndex < galleryImages.length ? selectedImageIndex : 0;
-  const currentMainImage = galleryImages[activeImageIdx] || galleryImages[0] || '';
 
   return (
     <div className="flex flex-col min-h-screen bg-white pb-32">
@@ -353,34 +436,60 @@ export const ProductDetailScreen: React.FC = () => {
         </div>
       )}
 
-      {/* Main Common Image Gallery (All product photos visible regardless of selected color) */}
+      {/* Larger Main Preview with Active Variant & Gallery Switcher */}
       {galleryImages.length > 0 && (
         <div className="relative w-full aspect-1/1 bg-[#F6F8FA] overflow-hidden">
           <img
             src={currentMainImage}
-            alt={product.name}
+            alt={selectedVariantObj ? `${product.name} - ${selectedVariantObj.colorName}` : product.name}
             referrerPolicy="no-referrer"
             className="w-full h-full object-cover object-center transition-all duration-300"
           />
 
-          {/* Common Gallery Thumbnails Overlay */}
+          {/* Selected Variant Badge on Larger Preview */}
+          {selectedVariantObj && (
+            <div className="absolute top-4 right-4 bg-[#192E4D]/90 backdrop-blur-xs text-white px-3 py-1.5 rounded-xl shadow-md flex items-center gap-2 text-[11px]">
+              <span
+                className="w-2.5 h-2.5 rounded-full border border-white/40 shrink-0"
+                style={{ backgroundColor: selectedVariantObj.colorCode || '#08A9A2' }}
+              />
+              <span className="font-extrabold">{selectedVariantObj.colorName}</span>
+              {activeCombinationSku && (
+                <span className="font-mono text-[10px] text-teal-300 border-l border-white/20 pl-2">
+                  {activeCombinationSku}
+                </span>
+              )}
+            </div>
+          )}
+
+          {/* Gallery Thumbnails Overlay */}
           {galleryImages.length > 1 && (
             <div className="absolute bottom-3 left-0 right-0 flex justify-center gap-2 px-4 overflow-x-auto py-1">
-              {galleryImages.map((img, idx) => (
-                <button
-                  key={idx}
-                  type="button"
-                  aria-label={`View image ${idx + 1}`}
-                  onClick={() => setSelectedImageIndex(idx)}
-                  className={`w-12 h-12 rounded-xl overflow-hidden border-2 bg-white shadow-sm transition-all cursor-pointer shrink-0 ${
-                    activeImageIdx === idx
-                      ? 'border-[#08A9A2] scale-105 ring-2 ring-[#08A9A2]/30'
-                      : 'border-white opacity-80 hover:opacity-100'
-                  }`}
-                >
-                  <img src={img} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
-                </button>
-              ))}
+              {galleryImages.map((img, idx) => {
+                const matchedVariantIdx = selectableVariants.findIndex(
+                  (sv) => sv.variantImage === img
+                );
+                return (
+                  <button
+                    key={idx}
+                    type="button"
+                    aria-label={`View image ${idx + 1}`}
+                    onClick={() => {
+                      setSelectedImageIndex(idx);
+                      if (matchedVariantIdx !== -1) {
+                        handleVariantChange(matchedVariantIdx);
+                      }
+                    }}
+                    className={`w-12 h-12 rounded-xl overflow-hidden border-2 bg-white shadow-sm transition-all cursor-pointer shrink-0 ${
+                      activeImageIdx === idx
+                        ? 'border-[#08A9A2] scale-105 ring-2 ring-[#08A9A2]/30'
+                        : 'border-white opacity-80 hover:opacity-100'
+                    }`}
+                  >
+                    <img src={img} alt="" referrerPolicy="no-referrer" className="w-full h-full object-cover" />
+                  </button>
+                );
+              })}
             </div>
           )}
 
@@ -444,59 +553,100 @@ export const ProductDetailScreen: React.FC = () => {
           </div>
         </div>
 
-        {/* COLOR VARIANT SELECTOR (Only displayed when real color variants are configured; never preselected!) */}
+        {/* PRODUCT VARIANT IMAGE SELECTION (Select Design / Color / Pattern using actual images) */}
         {requiresColorSelection && (
-          <div className="space-y-2">
+          <div className="space-y-2.5">
             <div className="flex items-center justify-between">
               <span className="text-xs font-bold text-[#192E4D]">
-                Select Color:{' '}
+                Select Design / Variant:{' '}
                 <span className="text-[#08A9A2]">
                   {selectedVariantIndex !== null
-                    ? configuredVariants[selectedVariantIndex]?.colorName
-                    : 'Please select a color'}
+                    ? selectableVariants[selectedVariantIndex]?.colorName
+                    : 'Tap an image below to select'}
                 </span>
               </span>
-              {selectedVariantIndex !== null && !requiresSizeSelection && (
+              {selectedVariantIndex !== null && (
                 <span className={`text-xs font-bold ${isAvailable ? 'text-emerald-700' : 'text-rose-600'}`}>
                   {isAvailable ? `${currentSizeStock} in stock` : 'Out of stock'}
                 </span>
               )}
             </div>
-            <div className="w-fit px-2.5 py-1.5 rounded-full bg-[#F6F8FA] border border-[#E6EAF0] flex items-center gap-2 flex-wrap">
-              {configuredVariants.map((v, idx) => {
+
+            <div className="grid grid-cols-2 sm:grid-cols-3 gap-2.5">
+              {selectableVariants.map((v, idx) => {
                 const isSelected = idx === selectedVariantIndex;
                 const isColorSoldOut = (v.stock ?? 0) <= 0 || v.isActive === false;
+                const variantImg = v.variantImage || galleryImages[idx] || galleryImages[0] || '';
+                const varPricing = getEffectiveProductPricing(product, v, selectedSize || undefined);
+                const variantSku =
+                  (requiresSizeSelection && selectedSize && v.sizeSku?.[selectedSize]) ||
+                  v.sku;
+
                 return (
                   <button
-                    key={v.id || idx}
+                    key={`${v.id || 'var'}_${idx}`}
                     type="button"
-                    aria-label={`Color: ${v.colorName}`}
-                    title={isColorSoldOut ? `${v.colorName} (Out of Stock)` : v.colorName}
+                    aria-label={`Select Variant: ${v.colorName}`}
                     onClick={() => handleVariantChange(idx)}
-                    className={`group relative w-7 h-7 rounded-full flex items-center justify-center transition-all active:scale-90 shrink-0 cursor-pointer ${
+                    className={`group relative rounded-2xl border p-2 text-left transition-all cursor-pointer flex items-center gap-2.5 ${
                       isSelected
-                        ? 'ring-2 ring-offset-1 ring-[#08A9A2] shadow-xs'
+                        ? 'border-[#08A9A2] bg-teal-50/50 ring-2 ring-[#08A9A2]/30 shadow-xs'
                         : isColorSoldOut
-                        ? 'opacity-50 ring-1 ring-black/10'
-                        : 'hover:scale-110 ring-1 ring-black/10'
+                        ? 'border-gray-200 bg-gray-50/70 opacity-60'
+                        : 'border-[#E6EAF0] bg-white hover:border-[#08A9A2]/60 hover:bg-[#F6F8FA]'
                     }`}
                   >
-                    <span
-                      className="w-full h-full rounded-full border border-black/15 flex items-center justify-center shadow-2xs"
-                      style={{ backgroundColor: v.colorCode }}
-                    >
-                      {isSelected && (
-                        <CheckCircle2
-                          className={`w-3.5 h-3.5 drop-shadow-xs ${
-                            v.colorCode.toLowerCase() === '#ffffff' ||
-                            v.colorCode.toLowerCase() === '#ffb000' ||
-                            v.colorCode.toLowerCase() === '#e6eaf0'
-                              ? 'text-slate-900'
-                              : 'text-white'
-                          }`}
+                    {/* Variant Image Thumbnail */}
+                    <div className="relative w-14 h-16 rounded-xl overflow-hidden bg-[#F6F8FA] border border-[#E6EAF0] shrink-0">
+                      {variantImg ? (
+                        <img
+                          src={variantImg}
+                          alt={v.colorName}
+                          referrerPolicy="no-referrer"
+                          className="w-full h-full object-cover"
+                        />
+                      ) : (
+                        <div
+                          className="w-full h-full flex items-center justify-center"
+                          style={{ backgroundColor: v.colorCode || '#192E4D' }}
                         />
                       )}
-                    </span>
+                      {isSelected && (
+                        <div className="absolute top-1 right-1 w-4 h-4 rounded-full bg-[#08A9A2] text-white flex items-center justify-center shadow-2xs">
+                          <CheckCircle2 className="w-3 h-3" />
+                        </div>
+                      )}
+                    </div>
+
+                    {/* Variant Name, SKU, Price & Stock Badge */}
+                    <div className="min-w-0 flex-1">
+                      <div className="flex items-center gap-1">
+                        <span
+                          className="w-2.5 h-2.5 rounded-full border border-black/15 shrink-0"
+                          style={{ backgroundColor: v.colorCode || '#192E4D' }}
+                        />
+                        <span className="text-xs font-extrabold text-[#192E4D] truncate">
+                          {v.colorName}
+                        </span>
+                      </div>
+                      <span className="text-[10px] font-mono text-[#697586] block truncate mt-0.5">
+                        SKU: {variantSku}
+                      </span>
+                      <div className="flex items-center justify-between gap-1 mt-1">
+                        <span className="text-[11px] font-black text-[#192E4D] tabular-nums">
+                          ₹{Math.round(varPricing.currentPrice).toLocaleString('en-IN')}
+                        </span>
+                        <span
+                          className={`text-[9px] font-extrabold px-1.5 py-0.5 rounded ${
+                            isColorSoldOut
+                              ? 'bg-rose-100 text-rose-700'
+                              : 'bg-emerald-50 text-emerald-700'
+                          }`}
+                        >
+                          {isColorSoldOut ? 'Out of Stock' : 'In Stock'}
+                        </span>
+                      </div>
+                    </div>
                   </button>
                 );
               })}
@@ -559,15 +709,20 @@ export const ProductDetailScreen: React.FC = () => {
                       }
                       setFeedbackMsg(null);
                     }}
-                    className={`min-h-[44px] min-w-[52px] px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer ${
+                    className={`min-h-[44px] min-w-[52px] px-4 py-2.5 rounded-xl text-xs font-bold border transition-all active:scale-95 cursor-pointer flex flex-col items-center justify-center ${
                       isSelected
                         ? 'bg-[#08A9A2] text-white border-[#08A9A2] shadow-xs'
                         : hasStock
                         ? 'bg-white border-[#E6EAF0] text-[#192E4D] hover:border-[#08A9A2]'
-                        : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed line-through'
+                        : 'bg-gray-100 border-gray-200 text-gray-400 cursor-not-allowed'
                     }`}
                   >
-                    {size}
+                    <span className={!hasStock ? 'line-through' : ''}>{size}</span>
+                    {!hasStock && (
+                      <span className="text-[9px] font-extrabold text-rose-500 uppercase leading-none mt-0.5">
+                        Out of Stock
+                      </span>
+                    )}
                   </button>
                 );
               })}

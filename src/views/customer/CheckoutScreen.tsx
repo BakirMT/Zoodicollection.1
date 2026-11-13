@@ -1,6 +1,6 @@
 import React, { useState } from 'react';
 import { useApp } from '../../context/AppContext';
-import { Address } from '../../types';
+import { Address, CartItem } from '../../types';
 import { calculateOrderPricing } from '../../lib/commerceLogic';
 import {
   ChevronLeft,
@@ -61,6 +61,7 @@ export const CheckoutScreen: React.FC = () => {
   const [paymentMethod, setPaymentMethod] = useState<'gpay' | 'upi' | 'card' | 'netbanking' | 'cod'>('gpay');
   const [isProcessing, setIsProcessing] = useState(false);
   const [placedOrderId, setPlacedOrderId] = useState<string | null>(null);
+  const [placedItems, setPlacedItems] = useState<CartItem[]>([]);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [copiedVpa, setCopiedVpa] = useState(false);
 
@@ -136,6 +137,19 @@ export const CheckoutScreen: React.FC = () => {
       setActiveScreen('login');
       return;
     }
+    if (cart.length === 0) {
+      setErrorMessage('Your cart is empty. Please select a product variant and add it to your cart.');
+      return;
+    }
+    const missingSelectionItem = cart.find(
+      (item) => !item.variantId || !item.colorName || item.quantity <= 0
+    );
+    if (missingSelectionItem) {
+      setErrorMessage(
+        `Required variant or size selection is missing for "${missingSelectionItem.productName}". Please review your cart.`
+      );
+      return;
+    }
     if (!isOnline) {
       setErrorMessage('No internet connection. Order placement requires an active online backend.');
       return;
@@ -153,6 +167,7 @@ export const CheckoutScreen: React.FC = () => {
   const executeOrderPlacement = async () => {
     setShowOtpModal(false);
     setIsProcessing(true);
+    const snapshotItems = [...cart];
 
     setTimeout(async () => {
       const res = await placeOrder(selectedAddress, paymentMethod, {
@@ -162,6 +177,7 @@ export const CheckoutScreen: React.FC = () => {
       });
       setIsProcessing(false);
       if (res.success && res.orderId) {
+        setPlacedItems(snapshotItems);
         setPlacedOrderId(res.orderId);
       } else {
         setErrorMessage(res.error || 'Failed to authorize payment.');
@@ -256,6 +272,46 @@ export const CheckoutScreen: React.FC = () => {
               </span>
             </div>
           </div>
+
+          {placedItems.length > 0 && (
+            <div className="pt-2.5 border-t border-teal-200/60 space-y-2">
+              <span className="text-[10px] font-extrabold uppercase tracking-wider text-[#192E4D] block">
+                Ordered Items & Selected Variants ({placedItems.length})
+              </span>
+              <div className="space-y-2 max-h-48 overflow-y-auto pr-1">
+                {placedItems.map((item) => (
+                  <div
+                    key={item.id}
+                    className="flex items-center gap-2.5 p-2 rounded-xl bg-white border border-slate-200/80"
+                  >
+                    <img
+                      src={item.image}
+                      alt={item.productName}
+                      referrerPolicy="no-referrer"
+                      className="w-11 h-12 rounded-lg object-cover border border-slate-100 shrink-0"
+                    />
+                    <div className="min-w-0 flex-1">
+                      <p className="font-extrabold text-[#192E4D] text-[11px] truncate">
+                        {item.productName}
+                      </p>
+                      <p className="text-[10px] text-[#697586] truncate">
+                        Variant: <strong className="text-[#192E4D]">{item.colorName}</strong>
+                        {item.size ? ` • Size: ${item.size}` : ''} • Qty: {item.quantity}
+                      </p>
+                      {item.sku && (
+                        <p className="text-[9px] font-mono text-[#08A9A2] truncate">
+                          SKU: {item.sku}
+                        </p>
+                      )}
+                    </div>
+                    <span className="font-black text-[#192E4D] text-[11px] tabular-nums shrink-0">
+                      ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
+                    </span>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex flex-col w-full max-w-sm gap-2.5">
@@ -723,6 +779,73 @@ export const CheckoutScreen: React.FC = () => {
                 </div>
               </div>
             </div>
+          </div>
+        </div>
+
+        {/* ORDER ITEMS & SELECTED VARIANTS */}
+        <div className="p-4 rounded-2xl bg-white border border-[#E6EAF0] space-y-3 text-xs shadow-2xs">
+          <div className="flex items-center justify-between pb-1.5 border-b border-[#F0F4F8]">
+            <h3 className="font-extrabold text-[#192E4D]">
+              Selected Product Variants ({cart.reduce((s, i) => s + i.quantity, 0)} items)
+            </h3>
+            <span className="text-[10px] font-bold text-[#08A9A2]">Verified Selection</span>
+          </div>
+          <div className="space-y-2.5">
+            {cart.map((item) => (
+              <div
+                key={item.id}
+                className="flex items-center gap-3 p-2.5 rounded-xl bg-[#F6F8FA] border border-[#E6EAF0]"
+              >
+                <div className="w-14 h-16 rounded-lg bg-white overflow-hidden border border-[#E6EAF0] shrink-0">
+                  <img
+                    src={item.image}
+                    alt={`${item.productName} - ${item.colorName}`}
+                    referrerPolicy="no-referrer"
+                    className="w-full h-full object-cover"
+                  />
+                </div>
+                <div className="min-w-0 flex-1">
+                  <span className="text-[10px] font-bold uppercase tracking-wider text-[#08A9A2] block">
+                    {item.brand}
+                  </span>
+                  <h4 className="font-extrabold text-[#192E4D] text-xs truncate">
+                    {item.productName}
+                  </h4>
+                  <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[10px] text-[#697586]">
+                    <span className="inline-flex items-center gap-1 font-bold text-[#192E4D] bg-white px-1.5 py-0.5 rounded border border-[#E6EAF0]">
+                      <span
+                        className="w-2 h-2 rounded-full border border-black/15"
+                        style={{ backgroundColor: item.colorCode || '#192E4D' }}
+                      />
+                      <span>{item.colorName}</span>
+                    </span>
+                    {item.size && (
+                      <span className="font-bold text-[#192E4D] bg-white px-1.5 py-0.5 rounded border border-[#E6EAF0]">
+                        Size: {item.size}
+                      </span>
+                    )}
+                    <span className="font-bold text-[#192E4D] bg-white px-1.5 py-0.5 rounded border border-[#E6EAF0]">
+                      Qty: {item.quantity}
+                    </span>
+                  </div>
+                  {item.sku && (
+                    <span className="text-[10px] font-mono text-[#697586] block mt-0.5 truncate">
+                      SKU: {item.sku}
+                    </span>
+                  )}
+                </div>
+                <div className="text-right shrink-0">
+                  <span className="font-black text-[#192E4D] text-xs tabular-nums block">
+                    ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
+                  </span>
+                  {item.quantity > 1 && (
+                    <span className="text-[10px] text-[#697586] tabular-nums block">
+                      ₹{Math.round(item.price).toLocaleString('en-IN')} each
+                    </span>
+                  )}
+                </div>
+              </div>
+            ))}
           </div>
         </div>
 

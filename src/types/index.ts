@@ -80,11 +80,12 @@ export interface ProductVariant {
   id: string;
   colorName: string;
   colorCode: string;
+  variantImage?: string;
   images: string[];
   sku: string;
   price: number;
   salePrice?: number;
-  stock: number; // Derived sum of active Colour + Size combinations for this colour
+  stock: number; // Derived sum of active Colour + Size combinations for this variant
   sizeStock?: Record<string, number>;
   sizeSku?: Record<string, string>;
   disabledSizes?: string[];
@@ -99,6 +100,11 @@ export interface ProductColor {
   name: string;
   hex: string;
   code?: string;
+  image?: string;
+  images?: string[];
+  sku?: string;
+  price?: number;
+  salePrice?: number;
 }
 
 export interface Product {

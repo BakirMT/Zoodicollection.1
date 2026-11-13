@@ -969,16 +969,66 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Items and Amounts */}
-                    <div className="flex justify-between items-center text-xs">
-                      <div>
-                        <span className="text-[#697586]">
-                          {ord.items.map((i) => `${i.productName} (${i.colorName}, ${i.size}) x${i.quantity}`).join(', ')}
+                    {/* Items and Customer-Selected Variant Images */}
+                    <div className="space-y-2 pt-1">
+                      <div className="flex items-center justify-between text-xs">
+                        <span className="font-bold text-[#192E4D]">
+                          Ordered Items & Customer-Selected Variants ({ord.items.length})
+                        </span>
+                        <span className="font-black text-[#192E4D] text-sm">
+                          Total: ₹{Math.round(ord.amounts.total).toLocaleString('en-IN')}
                         </span>
                       </div>
-                      <span className="font-black text-[#192E4D] text-sm">
-                        ₹{Math.round(ord.amounts.total).toLocaleString('en-IN')}
-                      </span>
+                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                        {ord.items.map((item, idx) => (
+                          <div
+                            key={`${ord.id}_item_${idx}`}
+                            className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F6F8FA] border border-[#E6EAF0] text-xs"
+                          >
+                            {item.image ? (
+                              <img
+                                src={item.image}
+                                alt={`${item.productName} - ${item.colorName}`}
+                                referrerPolicy="no-referrer"
+                                className="w-12 h-14 rounded-lg object-cover border border-white shadow-2xs shrink-0"
+                              />
+                            ) : (
+                              <div
+                                className="w-12 h-14 rounded-lg border border-slate-200 flex items-center justify-center text-[9px] font-bold text-white shrink-0"
+                                style={{ backgroundColor: item.colorCode || '#192E4D' }}
+                              >
+                                {item.colorName?.slice(0, 3) || 'VAR'}
+                              </div>
+                            )}
+                            <div className="min-w-0 flex-1">
+                              <span className="font-extrabold text-[#192E4D] block truncate">
+                                {item.productName}
+                              </span>
+                              <div className="flex flex-wrap items-center gap-1 mt-0.5 text-[11px] text-[#697586]">
+                                <span className="inline-flex items-center gap-1 font-bold text-[#192E4D]">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full border border-black/15"
+                                    style={{ backgroundColor: item.colorCode || '#192E4D' }}
+                                  />
+                                  <span>{item.colorName}</span>
+                                </span>
+                                {item.size && (
+                                  <span>• Size: <strong className="text-[#192E4D]">{item.size}</strong></span>
+                                )}
+                                <span>• Qty: <strong className="text-[#192E4D]">{item.quantity}</strong></span>
+                              </div>
+                              {item.sku && (
+                                <span className="font-mono text-[10px] text-[#08A9A2] block mt-0.5 truncate">
+                                  SKU: {item.sku}
+                                </span>
+                              )}
+                            </div>
+                            <span className="font-black text-[#192E4D] text-xs tabular-nums shrink-0">
+                              ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
                     </div>
 
                     {/* Logistics Courier Tracking Code */}
@@ -1079,7 +1129,15 @@ export const AdminDashboard: React.FC = () => {
                                   )}
                                 </td>
                                 <td className="p-3 font-semibold text-[#192E4D]">
-                                  <div className="flex items-center gap-1.5">
+                                  <div className="flex items-center gap-2">
+                                    {(v.variantImage || v.images?.[0] || prod.primaryImage) && (
+                                      <img
+                                        src={v.variantImage || v.images?.[0] || prod.primaryImage}
+                                        alt={displayColorName}
+                                        referrerPolicy="no-referrer"
+                                        className="w-8 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
+                                      />
+                                    )}
                                     <span
                                       className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
                                       style={{ backgroundColor: v.colorCode }}

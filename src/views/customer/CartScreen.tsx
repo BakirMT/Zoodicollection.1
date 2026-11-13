@@ -115,29 +115,40 @@ export const CartScreen: React.FC = () => {
                   </button>
                 </div>
 
-                {/* Color and Size attributes */}
-                <div className="flex items-center gap-2 mt-1 text-[11px] text-[#697586]">
-                  <div className="flex items-center gap-1">
+                {/* Variant Name, Size, and SKU attributes */}
+                <div className="flex flex-wrap items-center gap-1.5 mt-1 text-[11px] text-[#697586]">
+                  <div className="flex items-center gap-1 px-2 py-0.5 rounded-md bg-teal-50/70 border border-teal-200/60 text-[#192E4D] font-bold">
                     <span
-                      className="w-2.5 h-2.5 rounded-full border border-black/10"
-                      style={{ backgroundColor: item.colorCode }}
+                      className="w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
+                      style={{ backgroundColor: item.colorCode || '#192E4D' }}
                     />
                     <span>{item.colorName}</span>
                   </div>
                   {item.size && (
-                    <>
-                      <span>•</span>
-                      <span className="font-semibold text-[#192E4D]">Size: {item.size}</span>
-                    </>
+                    <span className="px-2 py-0.5 rounded-md bg-slate-100 border border-slate-200 font-bold text-[#192E4D]">
+                      Size: {item.size}
+                    </span>
+                  )}
+                  {item.sku && (
+                    <span className="font-mono text-[10px] text-[#697586] bg-[#F6F8FA] px-1.5 py-0.5 rounded border border-[#E6EAF0]">
+                      SKU: {item.sku}
+                    </span>
                   )}
                 </div>
               </div>
 
               {/* Price and Quantity Adjuster */}
               <div className="flex items-center justify-between mt-2 pt-2 border-t border-[#F0F4F8]">
-                <span className="text-sm font-black text-[#192E4D] tabular-nums">
-                  ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
-                </span>
+                <div>
+                  <span className="text-sm font-black text-[#192E4D] tabular-nums">
+                    ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
+                  </span>
+                  {item.quantity > 1 && (
+                    <span className="text-[10px] text-[#697586] block tabular-nums">
+                      ₹{Math.round(item.price).toLocaleString('en-IN')} × {item.quantity}
+                    </span>
+                  )}
+                </div>
 
                 <div className="flex items-center border border-[#E6EAF0] rounded-xl overflow-hidden bg-[#F6F8FA]">
                   <button
