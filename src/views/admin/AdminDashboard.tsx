@@ -38,6 +38,7 @@ import {
   Copy,
   CreditCard,
   Sliders,
+  MoreVertical,
 } from 'lucide-react';
 
 import { CategoryManagementView } from './CategoryManagementView';
@@ -91,19 +92,59 @@ export const AdminDashboard: React.FC = () => {
 
   const role = currentAdmin?.role || 'super_admin';
 
-  // State for Add / Edit Product Modal
+  // State for Add / Edit / Duplicate Product & Variant Modal
   const [showProductModal, setShowProductModal] = useState(false);
   const [editingProduct, setEditingProduct] = useState<Product | null>(null);
+  const [isDuplicateProductMode, setIsDuplicateProductMode] = useState(false);
+  const [initialDuplicateVariantId, setInitialDuplicateVariantId] = useState<string | null>(null);
   const [deletingProduct, setDeletingProduct] = useState<Product | null>(null);
+  const [openActionMenuId, setOpenActionMenuId] = useState<string | null>(null);
+  const [duplicatingBusyId, setDuplicatingBusyId] = useState<string | null>(null);
 
   const openAddProductModal = () => {
     setEditingProduct(null);
+    setIsDuplicateProductMode(false);
+    setInitialDuplicateVariantId(null);
+    setOpenActionMenuId(null);
     setShowProductModal(true);
   };
 
   const openEditProductModal = (product: Product) => {
     setEditingProduct(product);
+    setIsDuplicateProductMode(false);
+    setInitialDuplicateVariantId(null);
+    setOpenActionMenuId(null);
     setShowProductModal(true);
+  };
+
+  const openDuplicateProductModal = (product: Product) => {
+    if (duplicatingBusyId) return;
+    setDuplicatingBusyId(product.id);
+    setOpenActionMenuId(null);
+    setEditingProduct(product);
+    setIsDuplicateProductMode(true);
+    setInitialDuplicateVariantId(null);
+    setShowProductModal(true);
+    showNotice(
+      `Copied "${product.name}" into editor — review or modify details and click "Save Duplicated Product" to publish as a new item.`,
+      'success'
+    );
+    setTimeout(() => setDuplicatingBusyId(null), 600);
+  };
+
+  const openDuplicateVariantModal = (product: Product, variantId: string, variantName: string) => {
+    if (duplicatingBusyId) return;
+    setDuplicatingBusyId(`${product.id}_${variantId}`);
+    setOpenActionMenuId(null);
+    setEditingProduct(product);
+    setIsDuplicateProductMode(false);
+    setInitialDuplicateVariantId(variantId);
+    setShowProductModal(true);
+    showNotice(
+      `Duplicating variant "${variantName}" on "${product.name}" — edit details and click Save Variant.`,
+      'success'
+    );
+    setTimeout(() => setDuplicatingBusyId(null), 600);
   };
 
   // Inventory Restock modal state (Colour + Size combination aware)
@@ -692,10 +733,68 @@ export const AdminDashboard: React.FC = () => {
                               </div>
                             )}
                             <div className="flex-1 min-w-0">
-                              <span className="text-[10px] uppercase font-bold text-[#08A9A2] tracking-wider block">
-                                {p.brand}
-                              </span>
-                              <h3 className="font-extrabold text-xs text-[#192E4D] truncate">{p.name}</h3>
+                              <div className="flex items-start justify-between gap-2">
+                                <div className="min-w-0">
+                                  <span className="text-[10px] uppercase font-bold text-[#08A9A2] tracking-wider block">
+                                    {p.brand}
+                                  </span>
+                                  <h3 className="font-extrabold text-xs text-[#192E4D] truncate">{p.name}</h3>
+                                </div>
+                                {/* Three-dot Product Action Menu (Mobile) */}
+                                <div className="relative shrink-0">
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      setOpenActionMenuId(
+                                        openActionMenuId === `mob_prod_${p.id}`
+                                          ? null
+                                          : `mob_prod_${p.id}`
+                                      )
+                                    }
+                                    className="w-8 h-8 rounded-xl bg-slate-50 hover:bg-slate-100 border border-slate-200 flex items-center justify-center text-[#192E4D] cursor-pointer"
+                                    title="Product actions"
+                                    aria-label="Product actions menu"
+                                  >
+                                    <MoreVertical className="w-4 h-4" />
+                                  </button>
+                                  {openActionMenuId === `mob_prod_${p.id}` && (
+                                    <div className="absolute right-0 top-full mt-1.5 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 text-xs">
+                                      <button
+                                        type="button"
+                                        onClick={() => openEditProductModal(p)}
+                                        className="w-full px-3.5 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <Edit3 className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                        <span>Edit Product</span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        disabled={duplicatingBusyId === p.id}
+                                        onClick={() => openDuplicateProductModal(p)}
+                                        className="w-full px-3.5 py-2 text-left font-bold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                      >
+                                        <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                        <span>
+                                          {duplicatingBusyId === p.id
+                                            ? 'Duplicating...'
+                                            : 'Duplicate Product'}
+                                        </span>
+                                      </button>
+                                      <button
+                                        type="button"
+                                        onClick={() => {
+                                          setOpenActionMenuId(null);
+                                          setDeletingProduct(p);
+                                        }}
+                                        className="w-full px-3.5 py-2 text-left font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer border-t border-slate-100"
+                                      >
+                                        <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                        <span>Delete Product</span>
+                                      </button>
+                                    </div>
+                                  )}
+                                </div>
+                              </div>
                               <div className="flex items-center gap-2 mt-1">
                                 <span className="font-black text-[#192E4D] text-xs">
                                   ₹{Math.round(p.price).toLocaleString('en-IN')}
@@ -711,40 +810,59 @@ export const AdminDashboard: React.FC = () => {
                             </div>
                           </div>
 
-                          {/* Color Variants Chips */}
+                          {/* Color Variants Chips with Duplicate Variant Action */}
                           <div className="flex items-center gap-1.5 overflow-x-auto py-1 scrollbar-none text-[11px] text-[#697586]">
                             <span className="font-bold text-[10px] uppercase text-slate-400">Colors:</span>
                             {variants.map((v) => (
                               <span
                                 key={v.id}
-                                className="inline-flex items-center gap-1 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 shrink-0"
+                                className="inline-flex items-center gap-1.5 px-2 py-0.5 rounded-md bg-slate-50 border border-slate-200 shrink-0"
                               >
                                 <span
                                   className="w-2.5 h-2.5 rounded-full border border-black/10 shrink-0"
                                   style={{ backgroundColor: v.colorCode }}
                                 />
                                 <span className="text-[10px] font-semibold">{v.colorName}</span>
+                                <button
+                                  type="button"
+                                  onClick={() =>
+                                    openDuplicateVariantModal(p, v.id, v.colorName || 'Variant')
+                                  }
+                                  className="ml-0.5 p-0.5 rounded hover:bg-indigo-100 text-indigo-600 cursor-pointer"
+                                  title={`Duplicate variant ${v.colorName}`}
+                                >
+                                  <Copy className="w-2.5 h-2.5" />
+                                </button>
                               </span>
                             ))}
                           </div>
 
                           {/* Touch-Friendly Action Buttons */}
-                          <div className="grid grid-cols-2 gap-2 pt-2 border-t border-slate-100">
+                          <div className="grid grid-cols-3 gap-2 pt-2 border-t border-slate-100">
                             <button
                               type="button"
                               onClick={() => openEditProductModal(p)}
-                              className="h-10 px-3 rounded-xl bg-teal-50 hover:bg-teal-100/70 border border-teal-200 text-[#08A9A2] font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              className="h-10 px-2.5 rounded-xl bg-teal-50 hover:bg-teal-100/70 border border-teal-200 text-[#08A9A2] font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
                             >
                               <Edit3 className="w-3.5 h-3.5" />
-                              <span>Edit Product</span>
+                              <span>Edit</span>
+                            </button>
+                            <button
+                              type="button"
+                              disabled={duplicatingBusyId === p.id}
+                              onClick={() => openDuplicateProductModal(p)}
+                              className="h-10 px-2.5 rounded-xl bg-indigo-50 hover:bg-indigo-100/70 border border-indigo-200 text-indigo-700 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer disabled:opacity-50"
+                            >
+                              <Copy className="w-3.5 h-3.5" />
+                              <span>Duplicate</span>
                             </button>
                             <button
                               type="button"
                               onClick={() => setDeletingProduct(p)}
-                              className="h-10 px-3 rounded-xl bg-rose-50 hover:bg-rose-100/70 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-1.5 transition-all cursor-pointer"
+                              className="h-10 px-2.5 rounded-xl bg-rose-50 hover:bg-rose-100/70 border border-rose-200 text-rose-700 font-bold text-xs flex items-center justify-center gap-1 transition-all cursor-pointer"
                             >
                               <Trash2 className="w-3.5 h-3.5" />
-                              <span>Delete Product</span>
+                              <span>Delete</span>
                             </button>
                           </div>
                         </div>
@@ -805,21 +923,86 @@ export const AdminDashboard: React.FC = () => {
                                   ₹{Math.round(p.price).toLocaleString('en-IN')}
                                 </td>
                                 <td className="p-3">
-                                  <div className="flex flex-col gap-1">
-                                    {variants.map((v) => (
-                                      <div key={v.id} className="flex items-center gap-1.5">
-                                        <span
-                                          className="w-3 h-3 rounded-full border border-black/10 shrink-0"
-                                          style={{ backgroundColor: v.colorCode }}
-                                        />
-                                        <span className="font-semibold text-[#192E4D]">
-                                          {v.colorName}
-                                        </span>
-                                        <span className="text-[10px] text-[#697586]">
-                                          ({(v.images || []).length} photos, {v.stock} pcs, SKU: {v.sku})
-                                        </span>
-                                      </div>
-                                    ))}
+                                  <div className="flex flex-col gap-1.5">
+                                    {variants.map((v) => {
+                                      const varMenuKey = `cat_var_${p.id}_${v.id}`;
+                                      return (
+                                        <div
+                                          key={v.id}
+                                          className="flex items-center justify-between gap-2 px-2 py-1 rounded-lg bg-slate-50/80 border border-slate-100"
+                                        >
+                                          <div className="flex items-center gap-1.5 min-w-0">
+                                            <span
+                                              className="w-3 h-3 rounded-full border border-black/10 shrink-0"
+                                              style={{ backgroundColor: v.colorCode }}
+                                            />
+                                            <span className="font-semibold text-[#192E4D] truncate">
+                                              {v.colorName}
+                                            </span>
+                                            <span className="text-[10px] text-[#697586] truncate">
+                                              ({(v.images || []).length} photos, {v.stock} pcs, SKU: {v.sku})
+                                            </span>
+                                          </div>
+                                          {/* Three-dot Variant Action Menu inside Catalog */}
+                                          <div className="relative shrink-0 flex items-center gap-1">
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                openDuplicateVariantModal(
+                                                  p,
+                                                  v.id,
+                                                  v.colorName || 'Variant'
+                                                )
+                                              }
+                                              className="px-1.5 py-0.5 rounded bg-indigo-50 hover:bg-indigo-100 text-indigo-700 text-[10px] font-bold flex items-center gap-1 cursor-pointer"
+                                              title={`Duplicate variant ${v.colorName}`}
+                                            >
+                                              <Copy className="w-2.5 h-2.5" />
+                                              <span>Duplicate</span>
+                                            </button>
+                                            <button
+                                              type="button"
+                                              onClick={() =>
+                                                setOpenActionMenuId(
+                                                  openActionMenuId === varMenuKey ? null : varMenuKey
+                                                )
+                                              }
+                                              className="p-1 rounded hover:bg-slate-200/70 text-slate-500 hover:text-[#192E4D] cursor-pointer"
+                                              title="Variant actions"
+                                              aria-label="Variant actions menu"
+                                            >
+                                              <MoreVertical className="w-3.5 h-3.5" />
+                                            </button>
+                                            {openActionMenuId === varMenuKey && (
+                                              <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 text-xs">
+                                                <button
+                                                  type="button"
+                                                  onClick={() =>
+                                                    openDuplicateVariantModal(
+                                                      p,
+                                                      v.id,
+                                                      v.colorName || 'Variant'
+                                                    )
+                                                  }
+                                                  className="w-full px-3 py-2 text-left font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer"
+                                                >
+                                                  <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                                  <span>Duplicate Variant</span>
+                                                </button>
+                                                <button
+                                                  type="button"
+                                                  onClick={() => openEditProductModal(p)}
+                                                  className="w-full px-3 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                                >
+                                                  <Edit3 className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                                  <span>Edit Variant</span>
+                                                </button>
+                                              </div>
+                                            )}
+                                          </div>
+                                        </div>
+                                      );
+                                    })}
                                   </div>
                                 </td>
                                 <td className="p-3 font-bold">
@@ -839,7 +1022,7 @@ export const AdminDashboard: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="p-3 text-right">
-                                  <div className="flex items-center justify-end gap-1.5">
+                                  <div className="flex items-center justify-end gap-1.5 relative">
                                     <button
                                       type="button"
                                       onClick={() => openEditProductModal(p)}
@@ -850,12 +1033,75 @@ export const AdminDashboard: React.FC = () => {
                                     </button>
                                     <button
                                       type="button"
+                                      disabled={duplicatingBusyId === p.id}
+                                      onClick={() => openDuplicateProductModal(p)}
+                                      className="p-1.5 text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors cursor-pointer disabled:opacity-50"
+                                      title="Duplicate Product"
+                                    >
+                                      <Copy className="w-4 h-4" />
+                                    </button>
+                                    <button
+                                      type="button"
                                       onClick={() => setDeletingProduct(p)}
                                       className="p-1.5 text-rose-600 hover:bg-rose-50 rounded-lg transition-colors cursor-pointer"
                                       title="Delete Product"
                                     >
                                       <Trash2 className="w-4 h-4" />
                                     </button>
+                                    {/* Three-dot Product Action Menu (Desktop Catalog Row) */}
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setOpenActionMenuId(
+                                            openActionMenuId === `desk_prod_${p.id}`
+                                              ? null
+                                              : `desk_prod_${p.id}`
+                                          )
+                                        }
+                                        className="p-1.5 text-slate-500 hover:text-[#192E4D] hover:bg-slate-100 rounded-lg transition-colors cursor-pointer"
+                                        title="More product actions"
+                                        aria-label="Product actions menu"
+                                      >
+                                        <MoreVertical className="w-4 h-4" />
+                                      </button>
+                                      {openActionMenuId === `desk_prod_${p.id}` && (
+                                        <div className="absolute right-0 top-full mt-1 w-44 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 text-xs text-left">
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditProductModal(p)}
+                                            className="w-full px-3.5 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                            <span>Edit Product</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            disabled={duplicatingBusyId === p.id}
+                                            onClick={() => openDuplicateProductModal(p)}
+                                            className="w-full px-3.5 py-2 text-left font-bold text-indigo-700 hover:bg-indigo-50 disabled:opacity-50 flex items-center gap-2 cursor-pointer"
+                                          >
+                                            <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                            <span>
+                                              {duplicatingBusyId === p.id
+                                                ? 'Duplicating...'
+                                                : 'Duplicate'}
+                                            </span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setOpenActionMenuId(null);
+                                              setDeletingProduct(p);
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer border-t border-slate-100"
+                                          >
+                                            <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                            <span>Delete Product</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 </td>
                               </tr>
@@ -969,65 +1215,67 @@ export const AdminDashboard: React.FC = () => {
                       </div>
                     </div>
 
-                    {/* Items and Customer-Selected Variant Images */}
-                    <div className="space-y-2 pt-1">
-                      <div className="flex items-center justify-between text-xs">
-                        <span className="font-bold text-[#192E4D]">
-                          Ordered Items & Customer-Selected Variants ({ord.items.length})
-                        </span>
-                        <span className="font-black text-[#192E4D] text-sm">
-                          Total: ₹{Math.round(ord.amounts.total).toLocaleString('en-IN')}
-                        </span>
-                      </div>
-                      <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
-                        {ord.items.map((item, idx) => (
-                          <div
-                            key={`${ord.id}_item_${idx}`}
-                            className="flex items-center gap-2.5 p-2.5 rounded-xl bg-[#F6F8FA] border border-[#E6EAF0] text-xs"
-                          >
-                            {item.image ? (
-                              <img
-                                src={item.image}
-                                alt={`${item.productName} - ${item.colorName}`}
-                                referrerPolicy="no-referrer"
-                                className="w-12 h-14 rounded-lg object-cover border border-white shadow-2xs shrink-0"
-                              />
-                            ) : (
-                              <div
-                                className="w-12 h-14 rounded-lg border border-slate-200 flex items-center justify-center text-[9px] font-bold text-white shrink-0"
-                                style={{ backgroundColor: item.colorCode || '#192E4D' }}
-                              >
-                                {item.colorName?.slice(0, 3) || 'VAR'}
-                              </div>
-                            )}
-                            <div className="min-w-0 flex-1">
-                              <span className="font-extrabold text-[#192E4D] block truncate">
-                                {item.productName}
-                              </span>
-                              <div className="flex flex-wrap items-center gap-1 mt-0.5 text-[11px] text-[#697586]">
-                                <span className="inline-flex items-center gap-1 font-bold text-[#192E4D]">
-                                  <span
-                                    className="w-2.5 h-2.5 rounded-full border border-black/15"
-                                    style={{ backgroundColor: item.colorCode || '#192E4D' }}
+                    {/* Items, Selected Colors, Sizes, and Amounts */}
+                    <div className="space-y-2.5">
+                      <div className="divide-y divide-[#F0F4F8] rounded-xl border border-[#F0F4F8] bg-[#FBFDFE] overflow-hidden">
+                        {ord.items.map((i, itemIdx) => {
+                          const displayImg = i.image;
+                          return (
+                            <div
+                              key={`${i.id}_${itemIdx}`}
+                              className="p-2.5 flex items-start justify-between gap-3 text-xs"
+                            >
+                              <div className="flex items-start gap-2.5 min-w-0">
+                                {displayImg ? (
+                                  <img
+                                    src={displayImg}
+                                    alt={i.productName}
+                                    referrerPolicy="no-referrer"
+                                    className="w-12 h-12 rounded-lg object-cover border border-[#E6EAF0] bg-white shrink-0"
                                   />
-                                  <span>{item.colorName}</span>
-                                </span>
-                                {item.size && (
-                                  <span>• Size: <strong className="text-[#192E4D]">{item.size}</strong></span>
+                                ) : (
+                                  <div className="w-12 h-12 rounded-lg border border-[#E6EAF0] bg-slate-100 flex items-center justify-center text-[9px] font-bold text-slate-400 shrink-0">
+                                    No Img
+                                  </div>
                                 )}
-                                <span>• Qty: <strong className="text-[#192E4D]">{item.quantity}</strong></span>
+
+                                <div className="min-w-0 space-y-0.5">
+                                  <p className="font-extrabold text-[#192E4D] truncate">
+                                    {i.productName}{' '}
+                                    <span className="font-bold text-[#08A9A2]">×{i.quantity}</span>
+                                  </p>
+                                  <div className="flex items-center gap-1.5 text-[11px] text-[#697586] flex-wrap">
+                                    <span className="inline-flex items-center gap-1">
+                                      <span
+                                        className="w-2.5 h-2.5 rounded-full border border-black/15 shrink-0"
+                                        style={{ backgroundColor: i.colorCode || '#192E4D' }}
+                                      />
+                                      <span>
+                                        Color: <strong className="font-semibold text-[#192E4D]">{i.colorName}</strong>
+                                      </span>
+                                    </span>
+                                    {i.size ? (
+                                      <span>
+                                        • Size: <strong className="font-semibold text-[#192E4D]">{i.size}</strong>
+                                      </span>
+                                    ) : null}
+                                  </div>
+                                </div>
                               </div>
-                              {item.sku && (
-                                <span className="font-mono text-[10px] text-[#08A9A2] block mt-0.5 truncate">
-                                  SKU: {item.sku}
-                                </span>
-                              )}
+
+                              <span className="font-bold text-[#192E4D] shrink-0 tabular-nums">
+                                ₹{Math.round(i.price * i.quantity).toLocaleString('en-IN')}
+                              </span>
                             </div>
-                            <span className="font-black text-[#192E4D] text-xs tabular-nums shrink-0">
-                              ₹{Math.round(item.price * item.quantity).toLocaleString('en-IN')}
-                            </span>
-                          </div>
-                        ))}
+                          );
+                        })}
+                      </div>
+
+                      <div className="flex justify-between items-center text-xs pt-0.5">
+                        <span className="font-bold text-[#697586]">Order Total</span>
+                        <span className="font-black text-[#192E4D] text-sm tabular-nums">
+                          ₹{Math.round(ord.amounts.total).toLocaleString('en-IN')}
+                        </span>
                       </div>
                     </div>
 
@@ -1129,15 +1377,7 @@ export const AdminDashboard: React.FC = () => {
                                   )}
                                 </td>
                                 <td className="p-3 font-semibold text-[#192E4D]">
-                                  <div className="flex items-center gap-2">
-                                    {(v.variantImage || v.images?.[0] || prod.primaryImage) && (
-                                      <img
-                                        src={v.variantImage || v.images?.[0] || prod.primaryImage}
-                                        alt={displayColorName}
-                                        referrerPolicy="no-referrer"
-                                        className="w-8 h-9 rounded-lg object-cover border border-slate-200 shrink-0"
-                                      />
-                                    )}
+                                  <div className="flex items-center gap-1.5">
                                     <span
                                       className="w-3.5 h-3.5 rounded-full border border-black/15 shrink-0"
                                       style={{ backgroundColor: v.colorCode }}
@@ -1184,25 +1424,99 @@ export const AdminDashboard: React.FC = () => {
                                   </span>
                                 </td>
                                 <td className="p-3 text-right">
-                                  <button
-                                    type="button"
-                                    onClick={() => {
-                                      setRestockMode('add');
-                                      setAddStockAmount(10);
-                                      setRestockItem({
-                                        productId: prod.id,
-                                        productName: prod.name,
-                                        variantId: v.id,
-                                        colorName: displayColorName,
-                                        size: sz,
-                                        sku: comboSku,
-                                        currentStock: comboQty,
-                                      });
-                                    }}
-                                    className="px-2.5 py-1 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-colors cursor-pointer"
-                                  >
-                                    Adjust / Restock
-                                  </button>
+                                  <div className="flex items-center justify-end gap-1.5 relative">
+                                    <button
+                                      type="button"
+                                      onClick={() => {
+                                        setRestockMode('add');
+                                        setAddStockAmount(10);
+                                        setRestockItem({
+                                          productId: prod.id,
+                                          productName: prod.name,
+                                          variantId: v.id,
+                                          colorName: displayColorName,
+                                          size: sz,
+                                          sku: comboSku,
+                                          currentStock: comboQty,
+                                        });
+                                      }}
+                                      className="px-2.5 py-1 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-bold transition-colors cursor-pointer"
+                                    >
+                                      Adjust / Restock
+                                    </button>
+                                    <button
+                                      type="button"
+                                      onClick={() =>
+                                        openDuplicateVariantModal(prod, v.id, displayColorName)
+                                      }
+                                      className="px-2 py-1 rounded-lg bg-indigo-50 hover:bg-indigo-100 text-indigo-700 font-bold flex items-center gap-1 transition-colors cursor-pointer"
+                                      title={`Duplicate variant ${displayColorName}`}
+                                    >
+                                      <Copy className="w-3 h-3" />
+                                      <span>Duplicate</span>
+                                    </button>
+                                    {/* Three-dot Variant Action Menu in Inventory Table */}
+                                    <div className="relative">
+                                      <button
+                                        type="button"
+                                        onClick={() =>
+                                          setOpenActionMenuId(
+                                            openActionMenuId === `inv_var_${prod.id}_${v.id}_${sz}`
+                                              ? null
+                                              : `inv_var_${prod.id}_${v.id}_${sz}`
+                                          )
+                                        }
+                                        className="p-1.5 rounded-lg text-slate-500 hover:text-[#192E4D] hover:bg-slate-100 cursor-pointer"
+                                        title="Variant actions"
+                                        aria-label="Variant actions menu"
+                                      >
+                                        <MoreVertical className="w-3.5 h-3.5" />
+                                      </button>
+                                      {openActionMenuId === `inv_var_${prod.id}_${v.id}_${sz}` && (
+                                        <div className="absolute right-0 top-full mt-1 w-48 bg-white rounded-xl shadow-xl border border-slate-200 py-1 z-30 text-xs text-left">
+                                          <button
+                                            type="button"
+                                            onClick={() =>
+                                              openDuplicateVariantModal(prod, v.id, displayColorName)
+                                            }
+                                            className="w-full px-3.5 py-2 text-left font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer"
+                                          >
+                                            <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                            <span>Duplicate Variant</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => {
+                                              setOpenActionMenuId(null);
+                                              setRestockMode('add');
+                                              setAddStockAmount(10);
+                                              setRestockItem({
+                                                productId: prod.id,
+                                                productName: prod.name,
+                                                variantId: v.id,
+                                                colorName: displayColorName,
+                                                size: sz,
+                                                sku: comboSku,
+                                                currentStock: comboQty,
+                                              });
+                                            }}
+                                            className="w-full px-3.5 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                          >
+                                            <Boxes className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                            <span>Adjust / Restock</span>
+                                          </button>
+                                          <button
+                                            type="button"
+                                            onClick={() => openEditProductModal(prod)}
+                                            className="w-full px-3.5 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer border-t border-slate-100"
+                                          >
+                                            <Edit3 className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                            <span>Edit Product & Variants</span>
+                                          </button>
+                                        </div>
+                                      )}
+                                    </div>
+                                  </div>
                                 </td>
                               </tr>
                             );
@@ -2029,14 +2343,18 @@ export const AdminDashboard: React.FC = () => {
         </div>
       )}
 
-      {/* 10-SECTION ADAPTIVE PRODUCT CREATION & SPECIFICATION MODAL */}
+      {/* 11-SECTION ADAPTIVE PRODUCT CREATION, DUPLICATION & SPECIFICATION MODAL */}
       <ProductFormModal
         isOpen={showProductModal}
         onClose={() => {
           setShowProductModal(false);
           setEditingProduct(null);
+          setIsDuplicateProductMode(false);
+          setInitialDuplicateVariantId(null);
         }}
         editingProduct={editingProduct}
+        isDuplicateMode={isDuplicateProductMode}
+        initialDuplicateVariantId={initialDuplicateVariantId}
         onSaveSuccess={(msg) => showNotice(msg, 'success')}
       />
 

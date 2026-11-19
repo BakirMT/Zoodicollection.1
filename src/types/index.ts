@@ -80,12 +80,12 @@ export interface ProductVariant {
   id: string;
   colorName: string;
   colorCode: string;
-  variantImage?: string;
   images: string[];
+  variantImage?: string;
   sku: string;
   price: number;
   salePrice?: number;
-  stock: number; // Derived sum of active Colour + Size combinations for this variant
+  stock: number; // Derived sum of active Colour + Size combinations for this colour
   sizeStock?: Record<string, number>;
   sizeSku?: Record<string, string>;
   disabledSizes?: string[];
@@ -101,10 +101,74 @@ export interface ProductColor {
   hex: string;
   code?: string;
   image?: string;
-  images?: string[];
   sku?: string;
   price?: number;
   salePrice?: number;
+}
+
+export interface ProductImageRecord {
+  id: string;
+  product_id: string;
+  original_image_url: string;
+  image_url?: string;
+  is_main_gallery_image: boolean;
+  is_primary?: boolean;
+  sort_order: number;
+  created_at: string;
+}
+
+export type AIProcessingStatus =
+  | 'Pending AI Scan'
+  | 'Processing'
+  | 'Completed'
+  | 'Manual Review Required'
+  | 'Waiting for AI'
+  | 'Quota Exhausted'
+  | 'Failed';
+
+export interface AIDesignVariant {
+  id: string;
+  product_id: string;
+  source_image_id: string;
+  original_image_url: string;
+  cropped_image_url?: string;
+  variant_image_url: string;
+  detected_product_index: number;
+  main_color: string;
+  color_hex?: string;
+  secondary_pattern_colors?: string[];
+  pattern_description?: string;
+  bounding_box?: {
+    ymin: number;
+    xmin: number;
+    ymax: number;
+    xmax: number;
+  };
+  confidence_score: number;
+  is_visible: boolean;
+  sort_order: number;
+  processing_status: AIProcessingStatus;
+  approval_status:
+    | 'Auto Approved'
+    | 'Manual Review Required'
+    | 'Admin Edited'
+    | 'Manually Edited';
+  created_at: string;
+  updated_at: string;
+}
+
+export interface AIProcessingJob {
+  id: string;
+  product_id: string;
+  product_name: string;
+  image_urls: string[];
+  status: AIProcessingStatus;
+  total_images: number;
+  processed_images: number;
+  detected_variants_count: number;
+  error_message?: string;
+  created_at: string;
+  updated_at: string;
 }
 
 export interface Product {
@@ -137,7 +201,15 @@ export interface Product {
   // Decoupled Common Gallery Images & Independent Colors
   primaryImage?: string;
   images?: string[];
+  productImages?: ProductImageRecord[];
   colors?: ProductColor[];
+
+  // AI-Detected & Admin-Managed Design Variants
+  aiDesignVariants?: AIDesignVariant[];
+  aiProcessingStatus?: AIProcessingStatus;
+  aiScanStatus?: AIProcessingStatus;
+  aiJobId?: string;
+  aiLastScannedImageUrls?: string[];
 
   // Variant Option Type
   variantType?: VariantOptionType;

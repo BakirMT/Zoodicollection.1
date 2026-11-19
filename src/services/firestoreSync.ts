@@ -29,6 +29,9 @@ import {
   Review,
   SupportTicket,
   CategorySpecificationTemplate,
+  ProductImageRecord,
+  AIDesignVariant,
+  AIProcessingJob,
 } from '../types';
 import { formatCombinationSku, checkVariantStock } from '../lib/commerceLogic';
 import {
@@ -55,6 +58,8 @@ export const FIRESTORE_COLLECTIONS = {
   REVIEWS: 'reviews',
   SUPPORT_TICKETS: 'support_tickets',
   CATEGORY_SPEC_TEMPLATES: 'category_spec_templates',
+  AI_PROCESSING_JOBS: 'ai_processing_jobs',
+  PRODUCT_BACKUPS: 'product_backups',
 };
 
 const DELETED_PRODUCTS_STORAGE_KEY = 'zoodi_deleted_product_ids';
@@ -690,6 +695,58 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
 
   const totalDerivedStock = variants.reduce((sum, v) => sum + (v.stock || 0), 0);
 
+  // 3. Normalize ProductImageRecord list for Main Product Gallery (always visible, never hidden)
+  const existingProductImages: ProductImageRecord[] = Array.isArray(raw?.productImages)
+    ? raw.productImages
+    : [];
+  const productImages: ProductImageRecord[] = allCommonImages.map((imgUrl, idx) => {
+    const existing = existingProductImages.find((pi) => pi && pi.original_image_url === imgUrl);
+    return {
+      id: existing?.id || `${id}_img_${idx}`,
+      product_id: id,
+      original_image_url: imgUrl,
+      sort_order: idx,
+      is_main_gallery_image: true,
+      created_at: existing?.created_at || raw?.createdAt || new Date().toISOString(),
+    };
+  });
+
+  // 4. Normalize AI Design Variants (Select Design / Variant section)
+  const rawAiVariants: AIDesignVariant[] = Array.isArray(raw?.aiDesignVariants)
+    ? raw.aiDesignVariants
+    : [];
+  const aiDesignVariants: AIDesignVariant[] = rawAiVariants
+    .filter((av) => av && typeof av === 'object' && av.original_image_url)
+    .map((av, idx) => ({
+      ...av,
+      id: String(av.id || `aivar-${id}-${idx}`),
+      product_id: id,
+      source_image_id: String(av.source_image_id || `${id}_img_0`),
+      original_image_url: String(av.original_image_url),
+      cropped_image_url: av.cropped_image_url ? String(av.cropped_image_url) : undefined,
+      variant_image_url: String(av.variant_image_url || av.cropped_image_url || av.original_image_url),
+      detected_product_index:
+        typeof av.detected_product_index === 'number' ? av.detected_product_index : idx,
+      main_color: String(av.main_color || 'Standard').trim(),
+      color_hex: String(av.color_hex || '#192E4D'),
+      secondary_pattern_colors: Array.isArray(av.secondary_pattern_colors)
+        ? av.secondary_pattern_colors
+        : undefined,
+      pattern_description: av.pattern_description ? String(av.pattern_description) : undefined,
+      bounding_box: av.bounding_box,
+      confidence_score:
+        typeof av.confidence_score === 'number' && !Number.isNaN(av.confidence_score)
+          ? av.confidence_score
+          : 1,
+      is_visible: av.is_visible !== false,
+      sort_order: typeof av.sort_order === 'number' ? av.sort_order : idx,
+      processing_status: av.processing_status || 'Completed',
+      approval_status: av.approval_status || 'Auto Approved',
+      created_at: av.created_at || new Date().toISOString(),
+      updated_at: av.updated_at || new Date().toISOString(),
+    }))
+    .sort((a, b) => a.sort_order - b.sort_order);
+
   return {
     ...raw,
     id,
@@ -718,6 +775,14 @@ export function normalizeProductFromFirestore(raw: any, docId?: string): Product
     primaryImage,
     images: allCommonImages,
     additionalImages: allCommonImages.slice(1),
+    productImages,
+    aiDesignVariants,
+    aiProcessingStatus: raw?.aiProcessingStatus,
+    aiJobId: raw?.aiJobId,
+    aiLastScannedImageUrls: Array.isArray(raw?.aiLastScannedImageUrls)
+      ? raw.aiLastScannedImageUrls
+      : undefined,
+    aiErrorMessage: raw?.aiErrorMessage,
     colors: extractedColors,
     variants,
     variantCombinations: allCombinations,
@@ -1539,3 +1604,94 @@ export async function firestoreDeleteCategoryTemplate(templateId: string): Promi
     throw error;
   }
 }
+
+/**
+ * Creates a safe, reversible one-time backup of all existing products before AI variant processing
+ * updates any records. Preserves existing catalog data untouched.
+ */
+export async function firestoreEnsureCatalogBackup(products: Product[]): Promise<void> {
+  if (!products || products.length === 0) return;
+  try {
+    const backupKey = 'zoodi_pre_ai_catalog_backup_v1';
+    if (!localStorage.getItem(backupKey)) {
+      localStorage.setItem(
+        backupKey,
+        JSON.stringify({
+          backedUpAt: new Date().toISOString(),
+          productCount: products.length,
+          products,
+        })
+      );
+    }
+
+    const backupDocRef = doc(db, FIRESTORE_COLLECTIONS.PRODUCT_BACKUPS, 'pre_ai_variant_system_v1');
+    const snap = await getDoc(backupDocRef).catch(() => null);
+    if (!snap || !snap.exists()) {
+      await setDoc(
+        backupDocRef,
+        sanitizeForFirestore({
+          id: 'pre_ai_variant_system_v1',
+          backedUpAt: new Date().toISOString(),
+          productCount: products.length,
+          productIds: products.map((p) => p.id),
+          productsSummary: products.map((p) => ({
+            id: p.id,
+            name: p.name,
+            price: p.price,
+            salePrice: p.salePrice,
+            primaryImage: p.primaryImage,
+            images: p.images,
+            colors: p.colors,
+          })),
+        })
+      );
+    }
+  } catch (err) {
+    console.warn('[FirestoreSync] Catalog backup check notice:', err);
+  }
+}
+
+/**
+ * Listens in real time to AI Processing Jobs (`ai_processing_jobs`).
+ */
+export function subscribeToAiProcessingJobs(
+  callback: (jobs: AIProcessingJob[]) => void
+): () => void {
+  const colRef = collection(db, FIRESTORE_COLLECTIONS.AI_PROCESSING_JOBS);
+  return onSnapshot(
+    colRef,
+    (snapshot) => {
+      const jobs = snapshot.docs.map((d) => ({
+        ...(d.data() as AIProcessingJob),
+        id: d.id,
+      }));
+      jobs.sort(
+        (a, b) =>
+          new Date(b.updated_at || b.created_at || 0).getTime() -
+          new Date(a.updated_at || a.created_at || 0).getTime()
+      );
+      callback(jobs);
+    },
+    (err) => {
+      console.warn('[FirestoreSync] ai_processing_jobs onSnapshot error:', err);
+    }
+  );
+}
+
+/**
+ * Saves or updates an AI Processing Job in Cloud Firestore.
+ */
+export async function firestoreSaveAiProcessingJob(job: AIProcessingJob): Promise<void> {
+  try {
+    await setDoc(
+      doc(db, FIRESTORE_COLLECTIONS.AI_PROCESSING_JOBS, job.id),
+      sanitizeForFirestore({
+        ...job,
+        updated_at: new Date().toISOString(),
+      })
+    );
+  } catch (err) {
+    console.warn('[FirestoreSync] Error saving AI processing job:', err);
+  }
+}
+

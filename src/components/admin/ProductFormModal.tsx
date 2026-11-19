@@ -7,6 +7,7 @@ import {
   StructuredSpecification,
   VariantOptionType,
   VariantStockCombination,
+  AIDesignVariant,
 } from '../../types';
 import { getCategoryTemplate, getDefaultSizesForVariantType } from '../../data/categoryTemplates';
 import { formatCombinationSku } from '../../lib/commerceLogic';
@@ -37,6 +38,10 @@ import {
   Palette,
   Pencil,
   Image as ImageIcon,
+  Sparkles,
+  RefreshCw,
+  Copy,
+  MoreVertical,
 } from 'lucide-react';
 
 const PRESET_COLORS_STORAGE_KEY = 'zoodi_preset_product_colors_v1';
@@ -86,6 +91,8 @@ interface ProductFormModalProps {
   isOpen: boolean;
   onClose: () => void;
   editingProduct: Product | null;
+  isDuplicateMode?: boolean;
+  initialDuplicateVariantId?: string | null;
   onSaveSuccess: (message: string) => void;
 }
 
@@ -93,15 +100,20 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   isOpen,
   onClose,
   editingProduct,
+  isDuplicateMode = false,
+  initialDuplicateVariantId = null,
   onSaveSuccess,
 }) => {
   const {
+    products,
     mainCategories,
     subCategories,
     subSubCategories,
     saveProduct,
     categoryTemplates,
     orders,
+    triggerProductAiScan,
+    updateProductAiVariants,
   } = useApp();
 
   // Active section tab (1 to 11)
@@ -149,6 +161,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [presetEditError, setPresetEditError] = useState<string | null>(null);
   const [showColorModal, setShowColorModal] = useState(false);
   const [editingColorIndex, setEditingColorIndex] = useState<number | null>(null);
+  const [duplicatingFromColorId, setDuplicatingFromColorId] = useState<string | null>(null);
+  const [openVariantMenuId, setOpenVariantMenuId] = useState<string | null>(null);
+  const [isSavingProduct, setIsSavingProduct] = useState(false);
   const [cNameInput, setCNameInput] = useState('');
   const [cHexInput, setCHexInput] = useState('#192E4D');
   const [cImageInput, setCImageInput] = useState('');
@@ -156,6 +171,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   const [cPriceInput, setCPriceInput] = useState('');
   const [cSalePriceInput, setCSalePriceInput] = useState('');
   const [colorModalError, setColorModalError] = useState<string | null>(null);
+
+  // SELECT DESIGN / VARIANT (AI-Detected & Admin-Managed Variants)
+  const [pAiVariants, setPAiVariants] = useState<AIDesignVariant[]>([]);
+  const [isManualAiVarModalOpen, setIsManualAiVarModalOpen] = useState(false);
+  const [manualVarColor, setManualVarColor] = useState('');
+  const [manualVarHex, setManualVarHex] = useState('#192E4D');
+  const [manualVarImage, setManualVarImage] = useState('');
+  const [manualVarError, setManualVarError] = useState<string | null>(null);
+  const [isRetryingAiScan, setIsRetryingAiScan] = useState(false);
 
   const savePresetColorsList = (nextPresets: Array<{ name: string; hex: string }>) => {
     setPresetColors(nextPresets);
@@ -264,6 +288,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setCPriceInput('');
     setCSalePriceInput('');
     setColorModalError(null);
+    setPAiVariants([]);
+    setIsManualAiVarModalOpen(false);
+    setManualVarColor('');
+    setManualVarHex('#192E4D');
+    setManualVarImage('');
+    setManualVarError(null);
 
     // Section 5: No automatic size or variant selection!
     setVariantType('clothing_sizes');
@@ -319,8 +349,12 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setPendingMainCat(null);
       setPendingRemovalWarning(null);
       setBulkStockFillInput('');
+      setOpenVariantMenuId(null);
+      setDuplicatingFromColorId(null);
+      setIsSavingProduct(false);
 
-      setPName(editingProduct.name || '');
+      const dupSuffix = Math.random().toString(36).slice(2, 6).toUpperCase();
+      setPName(isDuplicateMode ? `${editingProduct.name} (Copy)` : editingProduct.name || '');
       setPBrand(editingProduct.brand || '');
       setPDesc(editingProduct.description || '');
       setPMainCat(editingProduct.mainCategoryId || '');
@@ -332,7 +366,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       );
 
       const firstVar = editingProduct.variants?.[0];
-      setPSku(firstVar?.sku || '');
+      const origBaseSku = firstVar?.sku || '';
+      setPSku(
+        isDuplicateMode
+          ? origBaseSku
+            ? `${origBaseSku}-COPY-${dupSuffix}`
+            : `ZD-COPY-${dupSuffix}`
+          : origBaseSku
+      );
 
       // 1. Load existing product images in their exact saved order, placing the selected primary image first
       let loadedBaseImages: string[] = [];
@@ -428,12 +469,27 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           }
         });
       }
-      setPColors(loadedColors);
-      if (loadedColors.length > 0) {
+      const oldToNewColorIdMap: Record<string, string> = {};
+      const remappedColors: ProductColor[] = loadedColors.map((c, idx) => {
+        if (!isDuplicateMode) {
+          oldToNewColorIdMap[c.id] = c.id;
+          return c;
+        }
+        const newColId = `col_${Date.now()}_${idx}_${Math.floor(Math.random() * 1000)}`;
+        oldToNewColorIdMap[c.id] = newColId;
+        return {
+          ...c,
+          id: newColId,
+          sku: c.sku ? `${c.sku}-COPY-${dupSuffix}` : undefined,
+        };
+      });
+      setPColors(remappedColors);
+
+      if (remappedColors.length > 0) {
         setPresetColors((prev) => {
           const merged = [...prev];
           let changed = false;
-          loadedColors.forEach((lc) => {
+          remappedColors.forEach((lc) => {
             const exists = merged.some(
               (p) => p.name.trim().toLowerCase() === lc.name.trim().toLowerCase()
             );
@@ -463,6 +519,26 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setCPriceInput('');
       setCSalePriceInput('');
       setColorModalError(null);
+      setPAiVariants(
+        Array.isArray(editingProduct.aiDesignVariants)
+          ? [...editingProduct.aiDesignVariants]
+              .sort((a, b) => a.sort_order - b.sort_order)
+              .map((av, idx) =>
+                isDuplicateMode
+                  ? {
+                      ...av,
+                      id: `aivar_${Date.now()}_${idx}_${Math.random().toString(36).slice(2, 6)}`,
+                      product_id: '',
+                    }
+                  : av
+              )
+          : []
+      );
+      setIsManualAiVarModalOpen(false);
+      setManualVarColor('');
+      setManualVarHex('#192E4D');
+      setManualVarImage(allLoadedImages[0] || '');
+      setManualVarError(null);
 
       // 3. Sizes & Combination Inventory
       const loadedVariantType = editingProduct.variantType || 'clothing_sizes';
@@ -489,17 +565,21 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
           v.colorName.trim().toLowerCase() !== 'default'
       );
 
-      if (loadedColors.length > 0) {
-        loadedColors.forEach((c) => {
+      if (remappedColors.length > 0) {
+        remappedColors.forEach((c, cIdx) => {
+          const origColorId = loadedColors[cIdx]?.id || c.id;
           const matchedVariant = configuredVariants.find(
-            (v) => v.id === c.id || v.colorName.toLowerCase() === c.name.toLowerCase()
+            (v) => v.id === origColorId || v.colorName.toLowerCase() === c.name.toLowerCase()
           );
           const disabledSet = new Set(matchedVariant?.disabledSizes || []);
           effectiveSizeKeys.forEach((sz) => {
             const comboKey = `${c.id}__${sz}`;
             // Check saved variantCombinations first
             const savedComb = (editingProduct.variantCombinations || []).find(
-              (vc) => (vc.colorId === c.id || vc.colorName.toLowerCase() === c.name.toLowerCase()) && vc.size === sz
+              (vc) =>
+                (vc.colorId === origColorId ||
+                  vc.colorName.toLowerCase() === c.name.toLowerCase()) &&
+                vc.size === sz
             );
 
             let rawQty = 0;
@@ -511,14 +591,19 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               rawQty = matchedVariant.stock;
             }
 
-            const existingSku =
-              savedComb?.sku ||
-              matchedVariant?.sizeSku?.[sz] ||
-              formatCombinationSku(
-                matchedVariant?.sku || firstVar?.sku || editingProduct.id,
-                c.name,
-                sz
-              );
+            const existingSku = !isDuplicateMode
+              ? savedComb?.sku ||
+                matchedVariant?.sizeSku?.[sz] ||
+                formatCombinationSku(
+                  matchedVariant?.sku || firstVar?.sku || editingProduct.id,
+                  c.name,
+                  sz
+                )
+              : formatCombinationSku(
+                  c.sku || `${firstVar?.sku || editingProduct.id}-COPY-${dupSuffix}`,
+                  c.name,
+                  sz
+                );
 
             const isComboActive =
               savedComb !== undefined
@@ -548,10 +633,15 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             rawQty = firstVar.stock;
           }
 
-          const existingSku =
-            savedComb?.sku ||
-            firstVar.sizeSku?.[sz] ||
-            formatCombinationSku(firstVar.sku || editingProduct.id, defaultColorLabel, sz);
+          const existingSku = !isDuplicateMode
+            ? savedComb?.sku ||
+              firstVar.sizeSku?.[sz] ||
+              formatCombinationSku(firstVar.sku || editingProduct.id, defaultColorLabel, sz)
+            : formatCombinationSku(
+                `${firstVar.sku || editingProduct.id}-COPY-${dupSuffix}`,
+                defaultColorLabel,
+                sz
+              );
 
           const isComboActive =
             savedComb !== undefined
@@ -604,10 +694,176 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       setPStatus(editingProduct.status === 'draft' ? 'draft' : 'published');
       setPShippingEligible(editingProduct.shippingEligible ?? true);
       setPReturnEligible(editingProduct.returnEligible ?? true);
+
+      // If opened specifically to duplicate a variant, jump to Section 4 and prefill the Variant Modal
+      if (initialDuplicateVariantId && remappedColors.length > 0) {
+        const targetIdx = remappedColors.findIndex(
+          (c, i) =>
+            c.id === initialDuplicateVariantId ||
+            loadedColors[i]?.id === initialDuplicateVariantId ||
+            editingProduct.variants?.[i]?.id === initialDuplicateVariantId
+        );
+        if (targetIdx !== -1) {
+          const sourceColor = remappedColors[targetIdx];
+          setActiveSection(4);
+          setEditingColorIndex(null);
+          setDuplicatingFromColorId(sourceColor.id);
+          let nextCopyName = `${sourceColor.name} (Copy)`;
+          let copyCounter = 2;
+          while (
+            remappedColors.some(
+              (c) => c.name.trim().toLowerCase() === nextCopyName.trim().toLowerCase()
+            )
+          ) {
+            nextCopyName = `${sourceColor.name} (Copy ${copyCounter})`;
+            copyCounter++;
+          }
+          setCNameInput(nextCopyName);
+          setCHexInput(sourceColor.hex || '#192E4D');
+          setCImageInput(
+            sourceColor.image ||
+              allLoadedImages[targetIdx] ||
+              allLoadedImages[0] ||
+              ''
+          );
+          const baseVarSku =
+            sourceColor.sku ||
+            `${firstVar?.sku || editingProduct.id}-V${targetIdx + 1}`;
+          setCSkuInput(
+            `${baseVarSku}-COPY-${Math.random().toString(36).slice(2, 5).toUpperCase()}`
+          );
+          setCPriceInput(
+            sourceColor.price !== undefined
+              ? String(sourceColor.price)
+              : editingProduct.price !== undefined
+              ? String(editingProduct.price)
+              : ''
+          );
+          setCSalePriceInput(
+            sourceColor.salePrice !== undefined
+              ? String(sourceColor.salePrice)
+              : editingProduct.salePrice !== undefined
+              ? String(editingProduct.salePrice)
+              : ''
+          );
+          setColorModalError(null);
+          setShowColorModal(true);
+        }
+      }
     } else {
       resetToBlankNewProduct();
     }
-  }, [isOpen, editingProduct?.id]);
+  }, [isOpen, editingProduct?.id, isDuplicateMode, initialDuplicateVariantId]);
+
+  // Keep pAiVariants synchronized if background AI finishes scanning while the modal is open
+  const liveEditingProduct = editingProduct
+    ? products.find((p) => p.id === editingProduct.id) || editingProduct
+    : null;
+
+  useEffect(() => {
+    if (!isOpen || !liveEditingProduct || isDuplicateMode) return;
+    if (Array.isArray(liveEditingProduct.aiDesignVariants)) {
+      setPAiVariants(
+        [...liveEditingProduct.aiDesignVariants].sort((a, b) => a.sort_order - b.sort_order)
+      );
+    }
+  }, [isOpen, isDuplicateMode, liveEditingProduct?.aiDesignVariants, liveEditingProduct?.aiProcessingStatus]);
+
+  // Handlers for Select Design / Variant (AI-Detected & Custom Variants)
+  const syncAiVariantsChange = (nextList: AIDesignVariant[]) => {
+    const ordered = nextList.map((v, idx) => ({
+      ...v,
+      sort_order: idx,
+      updated_at: new Date().toISOString(),
+    }));
+    setPAiVariants(ordered);
+    if (editingProduct && !isDuplicateMode && updateProductAiVariants) {
+      updateProductAiVariants(editingProduct.id, ordered).catch(console.warn);
+    }
+  };
+
+  const handleUpdateAiVariantColor = (varId: string, newColorName: string, newHex?: string) => {
+    const next = pAiVariants.map((v) => {
+      if (v.id !== varId) return v;
+      return {
+        ...v,
+        main_color: newColorName,
+        color_hex: newHex !== undefined ? newHex : v.color_hex,
+        approval_status: 'Manually Edited' as const,
+        processing_status: 'Completed' as const,
+        updated_at: new Date().toISOString(),
+      };
+    });
+    syncAiVariantsChange(next);
+  };
+
+  const handleToggleAiVariantVisibility = (varId: string) => {
+    const next = pAiVariants.map((v) =>
+      v.id === varId ? { ...v, is_visible: !v.is_visible, updated_at: new Date().toISOString() } : v
+    );
+    syncAiVariantsChange(next);
+  };
+
+  const handleDeleteAiVariant = (varId: string) => {
+    const next = pAiVariants.filter((v) => v.id !== varId);
+    syncAiVariantsChange(next);
+  };
+
+  const handleMoveAiVariant = (idx: number, direction: 'up' | 'down') => {
+    const targetIdx = direction === 'up' ? idx - 1 : idx + 1;
+    if (targetIdx < 0 || targetIdx >= pAiVariants.length) return;
+    const next = [...pAiVariants];
+    const temp = next[idx];
+    next[idx] = next[targetIdx];
+    next[targetIdx] = temp;
+    syncAiVariantsChange(next);
+  };
+
+  const handleAddManualAiVariant = () => {
+    const cleanColor = manualVarColor.trim();
+    const cleanImg = normalizeSingleImageUrl(manualVarImage.trim() || pGalleryImages[0] || '');
+    if (!cleanColor) {
+      setManualVarError('Please enter the main color name for this variant (e.g. White, Green, Blue).');
+      return;
+    }
+    if (!cleanImg) {
+      setManualVarError('Please select or paste a product image URL for this variant.');
+      return;
+    }
+    const now = new Date().toISOString();
+    const prodId = editingProduct && !isDuplicateMode ? editingProduct.id : 'new_prod';
+    const newVar: AIDesignVariant = {
+      id: `manual_${prodId}_${Date.now()}`,
+      product_id: prodId,
+      source_image_id: 'manual',
+      original_image_url: cleanImg,
+      variant_image_url: cleanImg,
+      detected_product_index: pAiVariants.length,
+      main_color: cleanColor,
+      color_hex: (manualVarHex || '#192E4D').toUpperCase(),
+      confidence_score: 1.0,
+      is_visible: true,
+      sort_order: pAiVariants.length,
+      processing_status: 'Completed',
+      approval_status: 'Manually Edited',
+      created_at: now,
+      updated_at: now,
+    };
+    syncAiVariantsChange([...pAiVariants, newVar]);
+    setManualVarColor('');
+    setManualVarError(null);
+    setIsManualAiVarModalOpen(false);
+  };
+
+  const handleRetryProductAiScan = async () => {
+    if (!editingProduct || isDuplicateMode || !triggerProductAiScan) return;
+    setIsRetryingAiScan(true);
+    try {
+      await triggerProductAiScan(editingProduct.id, true);
+    } finally {
+      setIsRetryingAiScan(false);
+    }
+  };
 
   // Current category specification template
   const currentTemplate = getCategoryTemplate(
@@ -1076,6 +1332,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
   // ==========================================
   const openAddColorModal = (initialImage?: string) => {
     setEditingColorIndex(null);
+    setDuplicatingFromColorId(null);
     setCNameInput('');
     setCHexInput('#192E4D');
     setCImageInput(
@@ -1093,6 +1350,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const c = pColors[idx];
     if (!c) return;
     setEditingColorIndex(idx);
+    setDuplicatingFromColorId(null);
     setCNameInput(c.name);
     setCHexInput(c.hex);
     setCImageInput(c.image || pGalleryImages[idx] || pGalleryImages[0] || '');
@@ -1102,6 +1360,50 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     setCSalePriceInput(c.salePrice !== undefined ? String(c.salePrice) : pSalePrice || '');
     setColorModalError(null);
     setShowColorModal(true);
+  };
+
+  const openDuplicateColorModal = (idx: number) => {
+    const c = pColors[idx];
+    if (!c) return;
+    setEditingColorIndex(null);
+    setDuplicatingFromColorId(c.id);
+    setOpenVariantMenuId(null);
+
+    let nextCopyName = `${c.name} (Copy)`;
+    let copyCounter = 2;
+    while (
+      pColors.some((col) => col.name.trim().toLowerCase() === nextCopyName.trim().toLowerCase())
+    ) {
+      nextCopyName = `${c.name} (Copy ${copyCounter})`;
+      copyCounter++;
+    }
+
+    setCNameInput(nextCopyName);
+    setCHexInput(c.hex || '#192E4D');
+    setCImageInput(c.image || pGalleryImages[idx] || pGalleryImages[0] || '');
+    const baseSkuVal = pSku.trim() || editingProduct?.id || 'ZD-001';
+    const sourceSku = c.sku || `${baseSkuVal}-V${idx + 1}`;
+    const uniqueSuffix = Math.random().toString(36).slice(2, 5).toUpperCase();
+    setCSkuInput(`${sourceSku}-COPY-${uniqueSuffix}`);
+    setCPriceInput(c.price !== undefined ? String(c.price) : pPrice || '');
+    setCSalePriceInput(c.salePrice !== undefined ? String(c.salePrice) : pSalePrice || '');
+    setColorModalError(null);
+    setShowColorModal(true);
+  };
+
+  const handleDuplicateAiVariant = (av: AIDesignVariant) => {
+    const newId = `aivar_${Date.now()}_${Math.random().toString(36).slice(2, 6)}`;
+    const nextVar: AIDesignVariant = {
+      ...av,
+      id: newId,
+      main_color: `${av.main_color} (Copy)`,
+      source_image_id: 'manual',
+    };
+    const nextList = [...pAiVariants, nextVar];
+    setPAiVariants(nextList);
+    if (editingProduct && !isDuplicateMode && updateProductAiVariants) {
+      updateProductAiVariants(editingProduct.id, nextList);
+    }
   };
 
   const handleSaveColor = () => {
@@ -1130,8 +1432,24 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
     const customVariantSku =
       cSkuInput.trim() || formatCombinationSku(pSku.trim() || 'ZD-001', trimmed, 'ALL');
 
-    // If first colour is added and user had entered quantities under default_color, migrate to this colour
-    if (editingColorIndex === null && pColors.length === 0) {
+    // If duplicating from an existing variant, copy all its size stock combinations with new unique SKUs
+    if (editingColorIndex === null && duplicatingFromColorId) {
+      const sizesToCopy = currentSizes.length > 0 ? currentSizes : ['Single Unit'];
+      setCombinationInventory((prev) => {
+        const next = { ...prev };
+        sizesToCopy.forEach((sz) => {
+          const sourceEntry = next[`${duplicatingFromColorId}__${sz}`];
+          const newKey = `${colorId}__${sz}`;
+          next[newKey] = {
+            sku: formatCombinationSku(customVariantSku, trimmed, sz),
+            stockQuantity: sourceEntry ? sourceEntry.stockQuantity : '0',
+            isActive: sourceEntry ? sourceEntry.isActive : true,
+          };
+        });
+        return next;
+      });
+    } else if (editingColorIndex === null && pColors.length === 0) {
+      // If first colour is added and user had entered quantities under default_color, migrate to this colour
       setCombinationInventory((prev) => {
         const next = { ...prev };
         currentSizes.forEach((sz) => {
@@ -1202,6 +1520,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       savePresetColorsList([...presetColors, { name: trimmed, hex: normalizedHex }]);
     }
 
+    setDuplicatingFromColorId(null);
     setShowColorModal(false);
   };
 
@@ -1340,6 +1659,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
 
   // Main Submit Handler
   const handleFormSubmit = async (statusOverride?: 'published' | 'draft') => {
+    if (isSavingProduct) return;
     setValidationError(null);
     const finalStatus = statusOverride || pStatus;
 
@@ -1484,9 +1804,14 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       ...cleanGallery.filter((img) => img !== finalPrimaryImage),
     ];
 
-    const previousBasePrice = editingProduct?.price;
-    const previousSalePrice = editingProduct?.salePrice;
-    const productId = editingProduct ? editingProduct.id : `prod_${Date.now()}`;
+    const isCreatingNewRecord = !editingProduct || isDuplicateMode;
+    const previousBasePrice = isCreatingNewRecord ? undefined : editingProduct?.price;
+    const previousSalePrice = isCreatingNewRecord ? undefined : editingProduct?.salePrice;
+    const productId = isCreatingNewRecord
+      ? `prod_${Date.now()}_${Math.random().toString(36).slice(2, 7)}`
+      : editingProduct.id;
+
+    setIsSavingProduct(true);
 
     const builtCombinations: VariantStockCombination[] = [];
 
@@ -1652,8 +1977,8 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       subSubCategoryId: pSubSubCat || undefined,
       price: numericPrice,
       salePrice: validSalePrice,
-      rating: editingProduct?.rating ?? 5.0,
-      reviewCount: editingProduct?.reviewCount ?? 0,
+      rating: isCreatingNewRecord ? 5.0 : editingProduct?.rating ?? 5.0,
+      reviewCount: isCreatingNewRecord ? 0 : editingProduct?.reviewCount ?? 0,
       featured: pFeatured,
       trending: pTrending,
       newArrival: pNewArrival,
@@ -1668,7 +1993,9 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       status: finalStatus,
       shippingEligible: pShippingEligible,
       returnEligible: pReturnEligible,
-      createdAt: editingProduct?.createdAt || new Date().toISOString(),
+      createdAt: isCreatingNewRecord
+        ? new Date().toISOString()
+        : editingProduct?.createdAt || new Date().toISOString(),
       primaryImage: finalPrimaryImage,
       images: finalGalleryImages,
       additionalImages: finalGalleryImages.slice(1),
@@ -1701,20 +2028,32 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
       careInstructions:
         (pCareInstructions.trim() || specValues.care_instructions || '').trim() || undefined,
       structuredSpecifications: finalStructuredSpecs,
+      aiDesignVariants: pAiVariants.map((av) => ({ ...av, product_id: productId })),
+      aiProcessingStatus: isCreatingNewRecord ? undefined : editingProduct?.aiProcessingStatus,
+      aiJobId: isCreatingNewRecord ? undefined : editingProduct?.aiJobId,
+      aiLastScannedImageUrls: isCreatingNewRecord
+        ? undefined
+        : editingProduct?.aiLastScannedImageUrls,
     };
 
-    const result = await saveProduct(productPayload);
-    if (!result.success) {
-      setValidationError(result.error || 'Failed to save product to Firebase database.');
-      return;
-    }
+    try {
+      const result = await saveProduct(productPayload);
+      if (!result.success) {
+        setValidationError(result.error || 'Failed to save product to Firebase database.');
+        return;
+      }
 
-    onSaveSuccess(
-      editingProduct
-        ? `Product "${productPayload.name}" updated and synced to Firebase!`
-        : `Product "${productPayload.name}" saved and published to Firebase!`
-    );
-    onClose();
+      onSaveSuccess(
+        isDuplicateMode
+          ? `Duplicated product "${productPayload.name}" saved as a new product in Firebase!`
+          : editingProduct
+          ? `Product "${productPayload.name}" updated and synced to Firebase!`
+          : `Product "${productPayload.name}" saved and published to Firebase!`
+      );
+      onClose();
+    } finally {
+      setIsSavingProduct(false);
+    }
   };
 
   if (!isOpen) return null;
@@ -1760,10 +2099,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             <Package className="w-5 h-5 text-teal-400" />
             <div>
               <h2 className="text-sm font-extrabold text-white">
-                {editingProduct ? `Edit Product: ${editingProduct.name}` : 'Add New Product & Variants'}
+                {isDuplicateMode && editingProduct
+                  ? `Duplicate Product: ${editingProduct.name}`
+                  : editingProduct
+                  ? `Edit Product: ${editingProduct.name}`
+                  : 'Add New Product & Variants'}
               </h2>
               <p className="text-[11px] text-teal-300 font-mono">
-                {pMainCat
+                {isDuplicateMode
+                  ? 'Duplicating Product • Edit any details below and click Save to create a new product'
+                  : pMainCat
                   ? `Template: ${currentTemplate.name || currentTemplate.categoryName} • All Spec Fields Optional`
                   : 'Fresh Blank Form • Select a Category in Step 2 to Load Specification Fields'}
               </p>
@@ -2056,15 +2401,27 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-black text-[#192E4D]">
-                    Section 3: Product Image Gallery
+                    Section 3: Main Product Gallery (Original Product Images)
                   </h3>
                   <p className="text-xs text-[#697586]">
-                    Add product photos by entering image URLs below. Select a primary image and arrange the display order for the storefront.
+                    All uploaded images here ALWAYS appear in the customer&apos;s Main Product Gallery. Original images are preserved untouched and automatically scanned by AI in the background to detect variants.
                   </p>
                 </div>
                 <span className="px-3 py-1 rounded-xl bg-teal-50 border border-teal-200 text-teal-800 font-extrabold text-xs shrink-0">
-                  {pGalleryImages.length} Image{pGalleryImages.length !== 1 ? 's' : ''} Added
+                  {pGalleryImages.length} Main Gallery Image{pGalleryImages.length !== 1 ? 's' : ''}
                 </span>
+              </div>
+
+              <div className="p-3 rounded-xl bg-teal-50/70 border border-teal-200 flex items-start gap-2.5 text-xs text-teal-950">
+                <Sparkles className="w-4 h-4 text-[#08A9A2] shrink-0 mt-0.5" />
+                <div>
+                  <p className="font-extrabold text-[#192E4D]">
+                    Fully Automatic AI Product &amp; Main Color Recognition
+                  </p>
+                  <p className="text-[11px] text-slate-600 mt-0.5">
+                    When you save this product, its images are saved immediately and queued automatically in the background. AI detects single or multiple separate products in each image, identifies each item&apos;s main/base fabric color (ignoring floral/graphic print colors), and populates <span className="font-bold text-[#192E4D]">Select Design / Variant</span> in Section 4.
+                  </p>
+                </div>
               </div>
 
               {/* Image URL & Multi-File Upload Input */}
@@ -2160,13 +2517,16 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                       const isPrimary = pPrimaryImage === img;
                       const isResolving = Boolean(resolvingImageUrls[img]);
                       const hasLoadFailed = Boolean(failedImageUrls[img]) && !isResolving;
+                      const linkedColorIdx = pColors.findIndex((c) => c.image === img);
+                      const linkedColor = linkedColorIdx !== -1 ? pColors[linkedColorIdx] : null;
+
                       return (
                         <div
                           key={`gallery_slot_${idx}`}
-                          className={`relative group rounded-2xl border p-2.5 bg-white flex flex-col justify-between transition-all ${
+                          className={`relative group rounded-2xl border p-3 bg-white flex flex-col justify-between transition-all overflow-hidden ${
                             isPrimary
-                              ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/30 shadow-sm'
-                              : 'border-slate-200 hover:border-slate-300'
+                              ? 'border-[#08A9A2] ring-2 ring-[#08A9A2]/25 shadow-sm'
+                              : 'border-slate-200 hover:border-slate-300 shadow-2xs'
                           }`}
                         >
                           {/* Image Preview Box */}
@@ -2183,7 +2543,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                                 src={img}
                                 alt={`Product image ${idx + 1}`}
                                 referrerPolicy="no-referrer"
-                                className="w-full h-full object-cover"
+                                className="w-full h-full object-cover transition-transform duration-300 group-hover:scale-105"
                                 onLoad={() => {
                                   if (failedImageUrls[img]) {
                                     setFailedImageUrls((prev) => {
@@ -2209,24 +2569,54 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                               </div>
                             )}
 
-                            {/* PRIMARY Badge */}
-                            {isPrimary && (
-                              <div className="absolute top-2 left-2 px-2 py-0.5 rounded-md bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm">
-                                <Star className="w-3 h-3 fill-current" />
-                                <span>PRIMARY</span>
+                            {/* Top-Left Status Badge */}
+                            <div className="absolute top-2 left-2 flex items-center gap-1.5">
+                              {isPrimary ? (
+                                <span className="px-2.5 py-1 rounded-lg bg-[#08A9A2] text-white text-[10px] font-black flex items-center gap-1 shadow-sm tracking-wide">
+                                  <Star className="w-3 h-3 fill-current" />
+                                  <span>PRIMARY</span>
+                                </span>
+                              ) : (
+                                <span className="px-2 py-0.5 rounded-lg bg-[#192E4D]/80 backdrop-blur-xs text-white text-[10px] font-mono font-bold">
+                                  #{idx + 1}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Top-Right Quick Remove Button */}
+                            <button
+                              type="button"
+                              onClick={() => handleRemoveGalleryImage(idx)}
+                              className="absolute top-2 right-2 w-7 h-7 rounded-lg bg-white/90 hover:bg-rose-600 text-rose-600 hover:text-white shadow-sm backdrop-blur-xs flex items-center justify-center transition-colors cursor-pointer"
+                              title="Remove image from gallery"
+                              aria-label={`Remove image ${idx + 1}`}
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+
+                            {/* Bottom Variant Link Indicator if assigned */}
+                            {linkedColor && (
+                              <div className="absolute bottom-2 left-2 right-2 px-2.5 py-1 rounded-lg bg-[#192E4D]/90 backdrop-blur-xs text-white text-[10px] font-bold flex items-center justify-between gap-1.5 shadow-sm">
+                                <div className="flex items-center gap-1.5 truncate">
+                                  <span
+                                    className="w-2.5 h-2.5 rounded-full border border-white/50 shrink-0"
+                                    style={{ backgroundColor: linkedColor.hex }}
+                                  />
+                                  <span className="truncate">{linkedColor.name}</span>
+                                </div>
+                                {linkedColor.sku && (
+                                  <span className="font-mono text-[9px] text-teal-300 shrink-0">
+                                    {linkedColor.sku}
+                                  </span>
+                                )}
                               </div>
                             )}
-
-                            {/* Position Badge */}
-                            <div className="absolute bottom-2 left-2 px-2 py-0.5 rounded-md bg-black/70 text-white text-[10px] font-mono font-bold">
-                              Position #{idx + 1}
-                            </div>
                           </div>
 
                           {/* Image URL Display / Correction Input */}
-                          <div className="pt-2">
-                            <label className="text-[10px] font-bold text-[#697586] block mb-0.5">
-                              Image URL
+                          <div className="pt-2.5">
+                            <label className="text-[10px] font-bold text-[#697586] block mb-1">
+                              Image Source URL
                             </label>
                             <input
                               type="url"
@@ -2234,7 +2624,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                               onChange={(e) => handleUpdateGalleryImageUrl(idx, e.target.value)}
                               title={img}
                               placeholder="https://..."
-                              className={`w-full px-2 py-1.5 text-[10px] font-mono rounded-lg border focus:outline-hidden truncate ${
+                              className={`w-full px-2.5 py-1.5 text-[10px] font-mono rounded-lg border focus:outline-hidden truncate ${
                                 hasLoadFailed
                                   ? 'bg-rose-50 border-rose-300 text-rose-800 focus:border-rose-500'
                                   : 'bg-slate-50 border-slate-200 text-slate-700 focus:bg-white focus:border-[#08A9A2]'
@@ -2242,58 +2632,75 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                             />
                           </div>
 
-                          {/* Primary Selection & Position Reordering Controls */}
-                          <div className="pt-2.5 mt-2 border-t border-slate-100 flex flex-col gap-2">
-                            <div className="flex items-center justify-between gap-1">
+                          {/* Clean 2-Row Action Footer (Zero overflow, single-line labels) */}
+                          <div className="pt-2.5 mt-2.5 border-t border-slate-100 space-y-2">
+                            {/* Row 1: Primary Cover & Variant Assignment */}
+                            <div className="grid grid-cols-2 gap-1.5">
                               {!isPrimary ? (
                                 <button
                                   type="button"
                                   onClick={() => handleSetPrimaryImage(img)}
-                                  className="px-2.5 py-1.5 rounded-lg bg-teal-50 text-[#08A9A2] hover:bg-teal-100 text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
-                                  title="Set as Primary Image"
+                                  className="h-8 px-2 rounded-lg bg-teal-50/80 hover:bg-[#08A9A2] text-[#08A9A2] hover:text-white border border-teal-200/80 hover:border-[#08A9A2] text-[10px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all whitespace-nowrap truncate"
+                                  title="Set as Primary Cover Image"
                                 >
-                                  <Star className="w-3 h-3" />
-                                  <span>Set as Primary</span>
+                                  <Star className="w-3 h-3 shrink-0" />
+                                  <span className="truncate">Set Primary</span>
                                 </button>
                               ) : (
-                                <span className="px-2.5 py-1 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold flex items-center gap-1">
-                                  <Check className="w-3 h-3" />
-                                  <span>Primary Image</span>
-                                </span>
+                                <div className="h-8 px-2 rounded-lg bg-emerald-50 text-emerald-700 border border-emerald-200 text-[10px] font-extrabold flex items-center justify-center gap-1 whitespace-nowrap truncate">
+                                  <Check className="w-3 h-3 shrink-0 stroke-[2.5]" />
+                                  <span className="truncate">Primary Cover</span>
+                                </div>
                               )}
 
                               <button
                                 type="button"
-                                onClick={() => openAddColorModal(img)}
-                                className="px-2 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-[#192E4D] text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
-                                title="Create a selectable product variant with this image"
+                                onClick={() =>
+                                  linkedColorIdx !== -1
+                                    ? openEditColorModal(linkedColorIdx)
+                                    : openAddColorModal(img)
+                                }
+                                className={`h-8 px-2 rounded-lg text-[10px] font-extrabold flex items-center justify-center gap-1 cursor-pointer transition-all whitespace-nowrap truncate ${
+                                  linkedColor
+                                    ? 'bg-[#192E4D] text-white hover:bg-[#243c61] shadow-2xs'
+                                    : 'bg-slate-100 hover:bg-[#192E4D] text-[#192E4D] hover:text-white border border-slate-200/80 hover:border-[#192E4D]'
+                                }`}
+                                title={
+                                  linkedColor
+                                    ? `Edit Variant: ${linkedColor.name}`
+                                    : 'Assign this image to a selectable product variant'
+                                }
                               >
-                                <Plus className="w-3 h-3" />
-                                <span>Variant</span>
-                              </button>
-
-                              <button
-                                type="button"
-                                onClick={() => handleRemoveGalleryImage(idx)}
-                                className="px-2 py-1.5 rounded-lg text-rose-600 hover:bg-rose-50 text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors ml-auto"
-                                title="Remove image from gallery"
-                              >
-                                <Trash2 className="w-3.5 h-3.5" />
-                                <span>Remove</span>
+                                {linkedColor ? (
+                                  <>
+                                    <span
+                                      className="w-2.5 h-2.5 rounded-full border border-white/60 shrink-0"
+                                      style={{ backgroundColor: linkedColor.hex }}
+                                    />
+                                    <span className="truncate">{linkedColor.name}</span>
+                                  </>
+                                ) : (
+                                  <>
+                                    <Plus className="w-3 h-3 shrink-0" />
+                                    <span className="truncate">Set Variant</span>
+                                  </>
+                                )}
                               </button>
                             </div>
 
-                            {/* Position / Order Controls */}
-                            <div className="flex items-center justify-between gap-1 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80">
-                              <div className="flex items-center gap-1">
-                                <span className="text-[10px] font-bold text-[#697586]">Order:</span>
+                            {/* Row 2: Display Order & Delete */}
+                            <div className="flex items-center justify-between gap-1.5 bg-slate-50 px-2 py-1 rounded-lg border border-slate-200/80">
+                              <div className="flex items-center gap-1 min-w-0">
+                                <span className="text-[10px] font-bold text-[#697586] shrink-0">
+                                  Order:
+                                </span>
                                 <select
                                   aria-label={`Set display position for image ${idx + 1}`}
                                   value={idx}
                                   onChange={(e) =>
                                     handleSetImagePosition(idx, Number(e.target.value))
                                   }
-                                  className="text-[10px] font-extrabold text-[#192E4D] bg-white border border-slate-200 rounded px-1.5 py-0.5 cursor-pointer"
+                                  className="text-[10px] font-extrabold text-[#192E4D] bg-white border border-slate-200 rounded-md px-1.5 py-0.5 cursor-pointer focus:outline-hidden focus:border-[#08A9A2]"
                                 >
                                   {pGalleryImages.map((_, posIdx) => (
                                     <option key={posIdx} value={posIdx}>
@@ -2303,13 +2710,13 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                                 </select>
                               </div>
 
-                              <div className="flex items-center gap-0.5">
+                              <div className="flex items-center gap-0.5 shrink-0">
                                 <button
                                   type="button"
                                   disabled={idx === 0}
                                   onClick={() => handleMoveImage(idx, 'left')}
-                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-2xs disabled:opacity-30 cursor-pointer"
-                                  title="Move Left / Up"
+                                  className="w-6 h-6 rounded-md text-slate-600 hover:bg-white hover:text-[#192E4D] hover:shadow-2xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition-all"
+                                  title="Move Earlier"
                                 >
                                   <ChevronLeft className="w-3.5 h-3.5 hidden sm:block" />
                                   <ArrowUp className="w-3.5 h-3.5 block sm:hidden" />
@@ -2318,11 +2725,20 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                                   type="button"
                                   disabled={idx === pGalleryImages.length - 1}
                                   onClick={() => handleMoveImage(idx, 'right')}
-                                  className="p-1 rounded-md text-slate-600 hover:bg-white hover:shadow-2xs disabled:opacity-30 cursor-pointer"
-                                  title="Move Right / Down"
+                                  className="w-6 h-6 rounded-md text-slate-600 hover:bg-white hover:text-[#192E4D] hover:shadow-2xs disabled:opacity-30 flex items-center justify-center cursor-pointer transition-all"
+                                  title="Move Later"
                                 >
                                   <ChevronRight className="w-3.5 h-3.5 hidden sm:block" />
                                   <ArrowDown className="w-3.5 h-3.5 block sm:hidden" />
+                                </button>
+                                <button
+                                  type="button"
+                                  onClick={() => handleRemoveGalleryImage(idx)}
+                                  className="ml-1 px-1.5 py-0.5 rounded-md text-rose-600 hover:bg-rose-50 text-[10px] font-bold flex items-center gap-0.5 cursor-pointer transition-colors"
+                                  title="Remove image"
+                                >
+                                  <Trash2 className="w-3 h-3 shrink-0" />
+                                  <span>Delete</span>
                                 </button>
                               </div>
                             </div>
@@ -2371,32 +2787,380 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="border-b border-[#F0F4F8] pb-2 flex flex-col sm:flex-row sm:items-center justify-between gap-2">
                 <div>
                   <h3 className="text-sm font-black text-[#192E4D]">
-                    Section 4: Product Colors & Image Variants
+                    Section 4: Select Design / Variant &amp; Product Colors
                   </h3>
                   <p className="text-xs text-[#697586]">
-                    Configure product variants (colors, designs, patterns, or styles) with their own variant image, SKU, price, and size stock.
+                    Manage AI-detected variants in <span className="font-bold text-[#192E4D]">Select Design / Variant</span> (edit main color, hide/show, reorder, add/delete) and independent <span className="font-bold text-[#192E4D]">Product Colors</span> below.
                   </p>
                 </div>
                 <div className="flex items-center gap-2 shrink-0">
-                  {pGalleryImages.length > 0 && (
-                    <button
-                      type="button"
-                      onClick={handleSyncVariantsFromGallery}
-                      className="px-3 py-2 rounded-xl bg-teal-50 hover:bg-teal-100 text-[#08A9A2] border border-teal-200 text-xs font-bold flex items-center gap-1.5 cursor-pointer transition-all"
-                    >
-                      <ImageIcon className="w-3.5 h-3.5" />
-                      <span>Sync from Gallery ({pGalleryImages.length})</span>
-                    </button>
-                  )}
                   <button
                     type="button"
                     onClick={() => openAddColorModal()}
                     className="px-3.5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-xs font-bold flex items-center gap-1.5 shadow-xs cursor-pointer transition-all active:scale-95 shrink-0"
                   >
                     <Plus className="w-3.5 h-3.5" />
-                    <span>+ Add Product Color / Variant</span>
+                    <span>+ Add Product Color</span>
                   </button>
                 </div>
+              </div>
+
+              {/* ===================================================================== */}
+              {/* PART B: SELECT DESIGN / VARIANT (AI-DETECTED & ADMIN-MANAGED VARIANTS) */}
+              {/* ===================================================================== */}
+              <div className="p-4 rounded-2xl bg-slate-900 text-white border border-slate-800 space-y-3.5 shadow-sm">
+                <div className="flex flex-wrap items-center justify-between gap-2 border-b border-slate-800 pb-3">
+                  <div className="flex items-center gap-2.5">
+                    <div className="w-8 h-8 rounded-xl bg-teal-500/20 border border-teal-400/30 flex items-center justify-center text-teal-300">
+                      <Sparkles className="w-4 h-4" />
+                    </div>
+                    <div>
+                      <div className="flex items-center gap-2 flex-wrap">
+                        <h4 className="font-black text-white text-xs uppercase tracking-wider">
+                          Select Design / Variant ({pAiVariants.length})
+                        </h4>
+                        {liveEditingProduct?.aiProcessingStatus && (
+                          <span
+                            className={`px-2 py-0.5 rounded-md text-[10px] font-extrabold uppercase tracking-wide ${
+                              liveEditingProduct.aiProcessingStatus === 'Completed'
+                                ? 'bg-emerald-500/20 text-emerald-300 border border-emerald-400/30'
+                                : liveEditingProduct.aiProcessingStatus === 'Manual Review Required'
+                                ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                : liveEditingProduct.aiProcessingStatus === 'Failed' ||
+                                  liveEditingProduct.aiProcessingStatus === 'Quota Exhausted'
+                                ? 'bg-rose-500/20 text-rose-300 border border-rose-400/30'
+                                : 'bg-sky-500/20 text-sky-300 border border-sky-400/30 animate-pulse'
+                            }`}
+                          >
+                            {liveEditingProduct.aiProcessingStatus}
+                          </span>
+                        )}
+                      </div>
+                      <p className="text-[11px] text-slate-300 mt-0.5">
+                        Hiding a variant here hides it ONLY from the customer&apos;s <span className="text-teal-300 font-bold">Select Design / Variant</span> selector — its original photo ALWAYS stays visible in the Main Product Gallery.
+                      </p>
+                    </div>
+                  </div>
+
+                  <div className="flex items-center gap-2 flex-wrap">
+                    {editingProduct && (
+                      <button
+                        type="button"
+                        disabled={isRetryingAiScan}
+                        onClick={handleRetryProductAiScan}
+                        className="px-3 py-1.5 rounded-xl bg-slate-800 hover:bg-slate-700 disabled:opacity-50 text-teal-300 border border-slate-700 text-[11px] font-extrabold flex items-center gap-1.5 cursor-pointer transition-colors"
+                        title="Re-scan product images with Gemini Vision AI"
+                      >
+                        <RefreshCw
+                          className={`w-3.5 h-3.5 ${isRetryingAiScan ? 'animate-spin' : ''}`}
+                        />
+                        <span>{isRetryingAiScan ? 'AI Scanning...' : 'Retry / Re-Scan AI'}</span>
+                      </button>
+                    )}
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setManualVarImage(pGalleryImages[0] || '');
+                        setManualVarColor('');
+                        setManualVarHex('#192E4D');
+                        setManualVarError(null);
+                        setIsManualAiVarModalOpen((prev) => !prev);
+                      }}
+                      className="px-3 py-1.5 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white text-[11px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors"
+                    >
+                      <Plus className="w-3.5 h-3.5" />
+                      <span>+ Add Variant Manually</span>
+                    </button>
+                  </div>
+                </div>
+
+                {/* Manual Variant Quick Creator */}
+                {isManualAiVarModalOpen && (
+                  <div className="p-3.5 rounded-xl bg-slate-800/90 border border-teal-500/40 space-y-3 animate-in fade-in">
+                    <div className="flex items-center justify-between">
+                      <span className="text-xs font-extrabold text-teal-300">
+                        Add Missing Variant Manually to Select Design / Variant
+                      </span>
+                      <button
+                        type="button"
+                        onClick={() => setIsManualAiVarModalOpen(false)}
+                        className="text-slate-400 hover:text-white cursor-pointer"
+                      >
+                        <X className="w-4 h-4" />
+                      </button>
+                    </div>
+                    {manualVarError && (
+                      <div className="p-2 rounded-lg bg-rose-500/20 border border-rose-400/40 text-rose-200 text-[11px] font-bold">
+                        {manualVarError}
+                      </div>
+                    )}
+                    <div className="grid grid-cols-1 sm:grid-cols-12 gap-2.5 items-end">
+                      <div className="sm:col-span-4">
+                        <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
+                          Main Color Name *
+                        </label>
+                        <input
+                          type="text"
+                          value={manualVarColor}
+                          onChange={(e) => {
+                            setManualVarColor(e.target.value);
+                            setManualVarError(null);
+                          }}
+                          placeholder="e.g. White, Green, Black"
+                          className="w-full h-9 px-3 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-bold focus:outline-hidden focus:border-teal-400"
+                        />
+                      </div>
+                      <div className="sm:col-span-3">
+                        <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
+                          Color Hex
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <input
+                            type="color"
+                            value={
+                              /^#[0-9A-F]{6}$/i.test(manualVarHex.trim())
+                                ? manualVarHex.trim()
+                                : '#192E4D'
+                            }
+                            onChange={(e) => setManualVarHex(e.target.value.toUpperCase())}
+                            className="w-9 h-9 rounded-lg border border-slate-700 bg-slate-900 p-0.5 cursor-pointer shrink-0"
+                          />
+                          <input
+                            type="text"
+                            value={manualVarHex}
+                            onChange={(e) => setManualVarHex(e.target.value.toUpperCase())}
+                            className="w-full h-9 px-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-mono font-bold uppercase"
+                          />
+                        </div>
+                      </div>
+                      <div className="sm:col-span-5">
+                        <label className="block text-[10px] font-bold text-slate-300 uppercase mb-1">
+                          Select Gallery Image or Paste URL *
+                        </label>
+                        <div className="flex items-center gap-1.5">
+                          <select
+                            value={manualVarImage}
+                            onChange={(e) => setManualVarImage(e.target.value)}
+                            className="flex-1 h-9 px-2.5 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-medium"
+                          >
+                            {pGalleryImages.length === 0 && (
+                              <option value="">-- Add images in Section 3 first --</option>
+                            )}
+                            {pGalleryImages.map((gUrl, gIdx) => (
+                              <option key={gIdx} value={gUrl}>
+                                Gallery Image #{gIdx + 1}
+                              </option>
+                            ))}
+                          </select>
+                          <button
+                            type="button"
+                            onClick={handleAddManualAiVariant}
+                            className="h-9 px-3 rounded-lg bg-[#08A9A2] hover:bg-[#079690] text-white font-extrabold text-xs flex items-center gap-1 shrink-0 cursor-pointer"
+                          >
+                            <Check className="w-3.5 h-3.5" />
+                            <span>Add</span>
+                          </button>
+                        </div>
+                      </div>
+                    </div>
+                  </div>
+                )}
+
+                {pAiVariants.length === 0 ? (
+                  <div className="p-5 rounded-xl bg-slate-800/60 border border-dashed border-slate-700 text-center space-y-1.5">
+                    <p className="text-xs font-bold text-slate-200">
+                      {editingProduct
+                        ? 'No AI-detected design variants generated yet for this product.'
+                        : 'AI variants will be generated automatically in the background as soon as you save this product.'}
+                    </p>
+                    <p className="text-[11px] text-slate-400 max-w-xl mx-auto">
+                      {editingProduct
+                        ? 'Click "Retry / Re-Scan AI" above to scan this product\'s hosted images and automatically detect each product and its main base color, or click "+ Add Variant Manually".'
+                        : 'You do not need to wait or click any scan button — save the product and background AI processing will populate this section automatically.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                    {pAiVariants.map((av, idx) => {
+                      const isVisible = av.is_visible !== false;
+                      const isManualReview =
+                        av.approval_status === 'Manual Review Required' ||
+                        av.main_color === 'Manual Review Required';
+                      const confPct = Math.round((av.confidence_score ?? 1) * 100);
+
+                      return (
+                        <div
+                          key={av.id}
+                          className={`p-3 rounded-xl border transition-all flex flex-col justify-between gap-2.5 ${
+                            !isVisible
+                              ? 'bg-slate-900/50 border-slate-800 opacity-65'
+                              : isManualReview
+                              ? 'bg-amber-950/30 border-amber-500/40'
+                              : 'bg-slate-800/90 border-slate-700'
+                          }`}
+                        >
+                          <div className="flex items-start gap-3">
+                            {/* Variant Preview Thumbnail */}
+                            <div className="relative w-16 h-16 rounded-xl overflow-hidden bg-slate-950 border border-slate-700 shrink-0">
+                              <img
+                                src={av.variant_image_url || av.original_image_url}
+                                alt={av.main_color}
+                                referrerPolicy="no-referrer"
+                                className="w-full h-full object-cover"
+                              />
+                              <span
+                                className="absolute bottom-1 right-1 w-3.5 h-3.5 rounded-full border border-white shadow-xs"
+                                style={{ backgroundColor: av.color_hex || '#192E4D' }}
+                              />
+                              {av.cropped_image_url && (
+                                <span className="absolute top-0.5 left-0.5 px-1 py-0.2 rounded bg-teal-600/90 text-[8px] font-black text-white uppercase">
+                                  Crop #{av.detected_product_index + 1}
+                                </span>
+                              )}
+                            </div>
+
+                            {/* Editable Main Color & Metadata */}
+                            <div className="flex-1 min-w-0 space-y-1.5">
+                              <div className="flex items-center justify-between gap-1">
+                                <span className="text-[10px] font-mono text-slate-400 truncate">
+                                  ID: {av.id.slice(-10)} • #{idx + 1}
+                                </span>
+                                <div className="flex items-center gap-1 shrink-0">
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                      isManualReview
+                                        ? 'bg-amber-500/20 text-amber-300 border border-amber-400/30'
+                                        : 'bg-teal-500/20 text-teal-300'
+                                    }`}
+                                  >
+                                    {av.source_image_id === 'manual'
+                                      ? 'Manual'
+                                      : `${confPct}% AI Conf`}
+                                  </span>
+                                  <span
+                                    className={`px-1.5 py-0.5 rounded text-[9px] font-extrabold uppercase ${
+                                      isVisible
+                                        ? 'bg-emerald-500/20 text-emerald-300'
+                                        : 'bg-slate-700 text-slate-300'
+                                    }`}
+                                  >
+                                    {isVisible ? 'Visible' : 'Hidden'}
+                                  </span>
+                                </div>
+                              </div>
+
+                              {/* Editable Main Color Name + Hex Input */}
+                              <div className="flex items-center gap-1.5">
+                                <input
+                                  type="color"
+                                  value={
+                                    /^#[0-9A-F]{6}$/i.test((av.color_hex || '').trim())
+                                      ? av.color_hex!.trim()
+                                      : '#192E4D'
+                                  }
+                                  onChange={(e) =>
+                                    handleUpdateAiVariantColor(
+                                      av.id,
+                                      av.main_color,
+                                      e.target.value.toUpperCase()
+                                    )
+                                  }
+                                  title="Edit main color hex"
+                                  className="w-7 h-7 rounded-lg border border-slate-600 bg-slate-900 p-0.5 cursor-pointer shrink-0"
+                                />
+                                <input
+                                  type="text"
+                                  value={av.main_color}
+                                  onChange={(e) =>
+                                    handleUpdateAiVariantColor(av.id, e.target.value)
+                                  }
+                                  placeholder="Main Color (e.g. White)"
+                                  aria-label="Edit variant main color"
+                                  className="flex-1 h-7 px-2 rounded-lg bg-slate-900 border border-slate-700 text-white text-xs font-extrabold focus:outline-hidden focus:border-teal-400 min-w-0"
+                                />
+                              </div>
+
+                              {av.pattern_description && (
+                                <p className="text-[10px] text-slate-400 truncate" title={av.pattern_description}>
+                                  Pattern ignored: {av.pattern_description}
+                                </p>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Variant Controls Footer: Hide/Show (ONLY in Select Design / Variant), Reorder, Delete */}
+                          <div className="flex items-center justify-between gap-1.5 pt-2 border-t border-slate-700/80">
+                            <button
+                              type="button"
+                              onClick={() => handleToggleAiVariantVisibility(av.id)}
+                              className={`px-2.5 py-1 rounded-lg text-[10px] font-extrabold flex items-center gap-1 cursor-pointer transition-colors ${
+                                isVisible
+                                  ? 'bg-slate-700 hover:bg-slate-600 text-slate-200'
+                                  : 'bg-teal-600 hover:bg-teal-500 text-white'
+                              }`}
+                              title={
+                                isVisible
+                                  ? 'Hide this variant from customer Select Design / Variant (Main gallery image remains visible)'
+                                  : 'Show this variant in customer Select Design / Variant'
+                              }
+                            >
+                              {isVisible ? (
+                                <>
+                                  <EyeOff className="w-3 h-3" />
+                                  <span>Hide Variant</span>
+                                </>
+                              ) : (
+                                <>
+                                  <Eye className="w-3 h-3" />
+                                  <span>Show Variant</span>
+                                </>
+                              )}
+                            </button>
+
+                            <div className="flex items-center gap-1">
+                              <button
+                                type="button"
+                                disabled={idx === 0}
+                                onClick={() => handleMoveAiVariant(idx, 'up')}
+                                className="w-6 h-6 rounded-md bg-slate-900 hover:bg-slate-700 disabled:opacity-30 text-slate-300 flex items-center justify-center cursor-pointer"
+                                title="Move variant earlier"
+                              >
+                                <ArrowUp className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                disabled={idx === pAiVariants.length - 1}
+                                onClick={() => handleMoveAiVariant(idx, 'down')}
+                                className="w-6 h-6 rounded-md bg-slate-900 hover:bg-slate-700 disabled:opacity-30 text-slate-300 flex items-center justify-center cursor-pointer"
+                                title="Move variant later"
+                              >
+                                <ArrowDown className="w-3 h-3" />
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDuplicateAiVariant(av)}
+                                className="px-2 py-1 rounded-md bg-teal-500/20 hover:bg-teal-600 text-teal-300 hover:text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Duplicate this design variant"
+                              >
+                                <Copy className="w-3 h-3" />
+                                <span>Duplicate</span>
+                              </button>
+                              <button
+                                type="button"
+                                onClick={() => handleDeleteAiVariant(av.id)}
+                                className="px-2 py-1 rounded-md bg-rose-500/20 hover:bg-rose-600 text-rose-300 hover:text-white text-[10px] font-bold flex items-center gap-1 cursor-pointer transition-colors"
+                                title="Delete incorrect variant"
+                              >
+                                <Trash2 className="w-3 h-3" />
+                                <span>Delete</span>
+                              </button>
+                            </div>
+                          </div>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
               </div>
 
               {pendingRemovalWarning && (
@@ -2678,7 +3442,7 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                             </div>
                           </div>
 
-                          <div className="flex items-center gap-1 shrink-0">
+                          <div className="flex items-center gap-1 shrink-0 relative">
                             <button
                               type="button"
                               onClick={() => openEditColorModal(idx)}
@@ -2688,12 +3452,63 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                             </button>
                             <button
                               type="button"
-                              onClick={() => handleDeleteColor(idx)}
-                              className="p-1 rounded-lg text-rose-600 hover:bg-rose-50 cursor-pointer"
-                              title="Remove variant"
+                              onClick={() => openDuplicateColorModal(idx)}
+                              className="px-2 py-1 rounded-lg bg-indigo-50 text-indigo-700 font-bold text-[11px] hover:bg-indigo-100 flex items-center gap-1 cursor-pointer"
+                              title="Duplicate this variant"
                             >
-                              <Trash2 className="w-3.5 h-3.5" />
+                              <Copy className="w-3 h-3" />
+                              <span>Duplicate</span>
                             </button>
+                            {/* Three-dot Variant Action Menu */}
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={() =>
+                                  setOpenVariantMenuId(
+                                    openVariantMenuId === color.id ? null : color.id
+                                  )
+                                }
+                                className="p-1.5 rounded-lg text-gray-500 hover:bg-gray-100 hover:text-[#192E4D] cursor-pointer"
+                                title="Variant actions"
+                                aria-label="Variant actions menu"
+                              >
+                                <MoreVertical className="w-3.5 h-3.5" />
+                              </button>
+                              {openVariantMenuId === color.id && (
+                                <div className="absolute right-0 top-full mt-1 w-40 bg-white rounded-xl shadow-xl border border-gray-200 py-1 z-30 text-xs">
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenVariantMenuId(null);
+                                      openEditColorModal(idx);
+                                    }}
+                                    className="w-full px-3 py-2 text-left font-bold text-[#192E4D] hover:bg-slate-50 flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Pencil className="w-3.5 h-3.5 text-[#08A9A2]" />
+                                    <span>Edit Variant</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => openDuplicateColorModal(idx)}
+                                    className="w-full px-3 py-2 text-left font-bold text-indigo-700 hover:bg-indigo-50 flex items-center gap-2 cursor-pointer"
+                                  >
+                                    <Copy className="w-3.5 h-3.5 text-indigo-600" />
+                                    <span>Duplicate Variant</span>
+                                  </button>
+                                  <button
+                                    type="button"
+                                    onClick={() => {
+                                      setOpenVariantMenuId(null);
+                                      handleDeleteColor(idx);
+                                    }}
+                                    className="w-full px-3 py-2 text-left font-bold text-rose-600 hover:bg-rose-50 flex items-center gap-2 cursor-pointer border-t border-gray-100"
+                                  >
+                                    <Trash2 className="w-3.5 h-3.5 text-rose-600" />
+                                    <span>Delete Variant</span>
+                                  </button>
+                                </div>
+                              )}
+                            </div>
                           </div>
                         </div>
                       );
@@ -3834,17 +4649,25 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
             </button>
             <button
               type="button"
+              disabled={isSavingProduct}
               onClick={() => handleFormSubmit('draft')}
-              className="px-4 py-2 rounded-xl border border-[#08A9A2] text-[#08A9A2] hover:bg-teal-50 font-bold text-xs transition-colors cursor-pointer"
+              className="px-4 py-2 rounded-xl border border-[#08A9A2] text-[#08A9A2] hover:bg-teal-50 disabled:opacity-50 font-bold text-xs transition-colors cursor-pointer"
             >
-              Save as Draft
+              {isSavingProduct ? 'Saving...' : 'Save as Draft'}
             </button>
             <button
               type="button"
+              disabled={isSavingProduct}
               onClick={() => handleFormSubmit('published')}
-              className="px-5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] text-white font-extrabold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
+              className="px-5 py-2 rounded-xl bg-[#08A9A2] hover:bg-[#079690] disabled:opacity-50 text-white font-extrabold text-xs shadow-md transition-all active:scale-95 cursor-pointer"
             >
-              {editingProduct ? 'Save & Update Product' : 'Publish to Catalog'}
+              {isSavingProduct
+                ? 'Saving...'
+                : isDuplicateMode
+                ? 'Save Duplicated Product'
+                : editingProduct
+                ? 'Save & Update Product'
+                : 'Publish to Catalog'}
             </button>
           </div>
         </div>
@@ -3859,12 +4682,17 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   <h4 className="font-extrabold text-[#192E4D] text-sm">
                     {editingColorIndex !== null
                       ? 'Edit Product Variant / Color'
+                      : duplicatingFromColorId
+                      ? 'Duplicate Product Variant / Color'
                       : 'Add Product Variant / Color'}
                   </h4>
                 </div>
                 <button
                   type="button"
-                  onClick={() => setShowColorModal(false)}
+                  onClick={() => {
+                    setDuplicatingFromColorId(null);
+                    setShowColorModal(false);
+                  }}
                   className="w-7 h-7 rounded-full hover:bg-gray-100 flex items-center justify-center cursor-pointer"
                 >
                   <X className="w-4 h-4" />
@@ -4068,7 +4896,10 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
               <div className="flex justify-end gap-2 pt-2 border-t">
                 <button
                   type="button"
-                  onClick={() => setShowColorModal(false)}
+                  onClick={() => {
+                    setDuplicatingFromColorId(null);
+                    setShowColorModal(false);
+                  }}
                   className="px-3.5 py-2 rounded-xl text-gray-500 font-bold hover:bg-gray-100 cursor-pointer text-xs"
                 >
                   Cancel
@@ -4078,7 +4909,11 @@ export const ProductFormModal: React.FC<ProductFormModalProps> = ({
                   onClick={handleSaveColor}
                   className="px-4 py-2 bg-[#08A9A2] hover:bg-[#079690] text-white rounded-xl font-bold cursor-pointer text-xs shadow-xs"
                 >
-                  {editingColorIndex !== null ? 'Update Variant' : 'Save Variant'}
+                  {editingColorIndex !== null
+                    ? 'Update Variant'
+                    : duplicatingFromColorId
+                    ? 'Save Duplicated Variant'
+                    : 'Save Variant'}
                 </button>
               </div>
             </div>
